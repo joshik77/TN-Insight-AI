@@ -1244,11 +1244,31 @@ const App = () => {
         );
 
 
+        const token =
+          getStoredToken();
+
+        if (!token) {
+
+          alert(
+            "Your session has expired. Please login again."
+          );
+
+          clearLocalSession();
+
+          return;
+        }
+
+
         const { data } =
           await axios.post(
             `${API_BASE}/compare-documents`,
             formData,
-            authConfig()
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
           );
 
 
@@ -1269,10 +1289,29 @@ const App = () => {
 
       } catch (error) {
 
-        console.error(error);
+        console.error(
+          "Document comparison error:",
+          error
+        );
+
+        if (
+          error?.response?.status
+          === 401
+        ) {
+
+          alert(
+            "Your login session is invalid or expired. Please login again."
+          );
+
+          clearLocalSession();
+
+          return;
+        }
 
         alert(
-          "Document comparison failed"
+          error?.response?.data?.detail
+          || error?.response?.data?.message
+          || "Document comparison failed"
         );
 
       } finally {
