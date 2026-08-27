@@ -502,6 +502,10 @@ def get_current_user(
 
     if not payload:
 
+        print(
+            "AUTH ERROR: Invalid or expired token"
+        )
+
         raise HTTPException(
             status_code=401,
             detail=
@@ -537,6 +541,11 @@ def get_current_user(
     )
 
     if not user:
+
+        print(
+            "AUTH ERROR: User account not found",
+            user_id
+        )
 
         raise HTTPException(
             status_code=401,
