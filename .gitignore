@@ -1,0 +1,31 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Database and uploaded PDFs
+*.db
+tn_insight.db
+saved_pdfs/
+**/saved_pdfs/
+
+# Logs
+*.log
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db

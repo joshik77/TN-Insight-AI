@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+pymupdf
+scikit-learn
+requests
+python-dotenv
+rank-bm25
+pdfplumber
+pytesseract
+pillow
+sqlalchemy

@@ -1,0 +1,265 @@
+[
+  {
+    "document": "hw_e_42_2024_Ms.pdf",
+    "questions": [
+      {
+        "question": "What is the Government Order number?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "What is the date of the Government Order?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "Which department issued the Government Order?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "Where is the Railway Over Bridge located?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "When was the Railway Over Bridge constructed?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "What major problems were identified in the Railway Over Bridge?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "What is the administrative sanction amount for rehabilitation of the Railway Over Bridge?",
+        "relevant_pages": [
+          2
+        ]
+      },
+      {
+        "question": "Under which programme is the rehabilitation work accommodated?",
+        "relevant_pages": [
+          2
+        ]
+      },
+      {
+        "question": "Who is authorized to draw and disburse the sanctioned amount?",
+        "relevant_pages": [
+          2
+        ]
+      },
+      {
+        "question": "Which department gave concurrence for the order?",
+        "relevant_pages": [
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "document": "hw_e_82_2024_Ms.pdf",
+    "questions": [
+      {
+        "question": "What is the Government Order number for the Sendurai bypass land acquisition?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "What is the date of the Government Order?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "Which department issued the Sendurai bypass order?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "Why was a bypass road considered necessary for Sendurai Town?",
+        "relevant_pages": [
+          1,
+          2
+        ]
+      },
+      {
+        "question": "What was the sanctioned amount for preparation of the Detailed Project Report for formation of the Sendurai bypass?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "What is the total length of the approved bypass alignment?",
+        "relevant_pages": [
+          2
+        ]
+      },
+      {
+        "question": "How much land is approximately required for the Sendurai bypass?",
+        "relevant_pages": [
+          2
+        ]
+      },
+      {
+        "question": "What is the administrative sanction amount for land acquisition for the Sendurai bypass?",
+        "relevant_pages": [
+          2
+        ]
+      },
+      {
+        "question": "Under which programme should the project construction cost be met?",
+        "relevant_pages": [
+          2
+        ]
+      },
+      {
+        "question": "Which department concurred with the order and on what date?",
+        "relevant_pages": [
+          3
+        ]
+      }
+    ]
+  },
+  {
+    "document": "Government-of-Tamil-Nadu-Declares-Public-Holidays-for-2026-NOV122025.pdf",
+    "questions": [
+      {
+        "question": "What is the Government Order number for the Tamil Nadu public holidays for 2026?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "What is the date of the public holidays Government Order?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "Which department issued the 2026 public holidays order?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "To which offices and banks does the 2026 public holidays order apply?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "What does the order state about Saturdays and Sundays in 2026?",
+        "relevant_pages": [
+          1
+        ]
+      },
+      {
+        "question": "On what date is Pongal declared as a public holiday in 2026?",
+        "relevant_pages": [
+          4
+        ]
+      },
+      {
+        "question": "On what date is Republic Day listed as a public holiday in 2026?",
+        "relevant_pages": [
+          4
+        ]
+      },
+      {
+        "question": "What date is Independence Day observed in the 2026 holiday list?",
+        "relevant_pages": [
+          4
+        ]
+      },
+      {
+        "question": "On what date is Deepavali listed in the 2026 holiday notification?",
+        "relevant_pages": [
+          5
+        ]
+      },
+      {
+        "question": "Which holiday is stated to be applicable only to Commercial Banks and Co-operative Banks?",
+        "relevant_pages": [
+          4,
+          5
+        ]
+      }
+    ]
+  },
+  {
+    "document": "47_hrce_e_pn_2023_24.pdf",
+    "questions": [
+      {
+        "question": "What did the Madras Hindu Religious and Charitable Endowments Act, 1951 create?",
+        "relevant_pages": [
+          28
+        ]
+      },
+      {
+        "question": "How many religious institutions are under the control of the Hindu Religious and Charitable Endowments Department?",
+        "relevant_pages": [
+          33
+        ]
+      },
+      {
+        "question": "Who collects the contribution under Section 92(1) and audit fees under Section 92(2)?",
+        "relevant_pages": [
+          35
+        ]
+      },
+      {
+        "question": "Who is the administrative head of the Hindu Religious and Charitable Endowments Department?",
+        "relevant_pages": [
+          35,
+          36
+        ]
+      },
+      {
+        "question": "Into how many Regions and Divisions is the HR&CE Department organized?",
+        "relevant_pages": [
+          38
+        ]
+      },
+      {
+        "question": "What was the estimated value of the temple properties restored after removal of encroachments?",
+        "relevant_pages": [
+          71
+        ]
+      },
+      {
+        "question": "In how many senior-grade temples was Archanai in Annai Tamizh implemented in the first phase?",
+        "relevant_pages": [
+          99
+        ]
+      },
+      {
+        "question": "How much had been disbursed to priests who performed Archana in Tamil till March 2023?",
+        "relevant_pages": [
+          101
+        ]
+      },
+      {
+        "question": "To what amount was the monthly pension enhanced in 2022-2023, and how many pensioners benefited?",
+        "relevant_pages": [
+          166
+        ]
+      },
+      {
+        "question": "What is the HR&CE Department toll-free helpline number and since when has it been in operation?",
+        "relevant_pages": [
+          177
+        ]
+      }
+    ]
+  }
+]
