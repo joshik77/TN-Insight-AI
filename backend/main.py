@@ -556,6 +556,49 @@ def get_current_user(
     return user
 
 
+
+def get_authenticated_user_id(
+    authorization:
+        str | None = Header(
+            default=None
+        )
+):
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required"
+        )
+
+    parts = authorization.split(" ", 1)
+
+    if (
+        len(parts) != 2
+        or parts[0].lower() != "bearer"
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header"
+        )
+
+    payload = decode_access_token(
+        parts[1].strip()
+    )
+
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
+
+    try:
+        return int(payload.get("sub"))
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )
+
+
 def document_belongs_to_user(
     document,
     user
@@ -3753,15 +3796,15 @@ async def compare_documents(
     language:
         str = Form("English"),
 
-    current_user:
-        User = Depends(
-            get_current_user
+    current_user_id:
+        int = Depends(
+            get_authenticated_user_id
         )
 
 ):
 
     state = get_runtime_state(
-        current_user.id
+        current_user_id
     )
 
     if (
