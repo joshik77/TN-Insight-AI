@@ -3798,6 +3798,8 @@ async def compare_documents(
 
 ):
 
+    print("### NEW COMPARE ENDPOINT HIT ###", flush=True)
+
     state = get_runtime_state(0)
 
     if (
