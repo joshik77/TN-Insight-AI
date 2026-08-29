@@ -6,9 +6,11 @@ import hashlib
 import hmac
 import secrets
 import time
+import gc
 from pathlib import Path
 
 import requests
+import numpy as np
 
 from dotenv import load_dotenv
 
@@ -3495,38 +3497,61 @@ def prepare_comparison_document(
         file_bytes
     )
 
+    extracted_pages = []
 
-    extracted_pages = [
-        page
-        for page in pages
-        if page["text"].strip()
-    ]
+    for page in pages:
 
+        text_value = (
+            page.get(
+                "text",
+                ""
+            )
+            or ""
+        ).strip()
+
+        if not text_value:
+            continue
+
+        if len(text_value) > 12000:
+            text_value = text_value[:12000]
+
+        extracted_pages.append({
+            "page":
+                page.get(
+                    "page"
+                ),
+            "text":
+                text_value
+        })
+
+    del pages
+    gc.collect()
 
     if not extracted_pages:
-
         return None
-
 
     chunks = chunk_pages(
         extracted_pages
     )
 
+    if len(chunks) > 300:
+        chunks = chunks[:300]
+
+    total_pages = len(
+        extracted_pages
+    )
+
+    del extracted_pages
+    gc.collect()
 
     return {
         "filename":
             filename,
-
-        "pages":
-            pages,
-
-        "extracted_pages":
-            extracted_pages,
-
+        "total_pages":
+            total_pages,
         "chunks":
             chunks
     }
-
 
 def select_comparison_chunks(
     chunks,
@@ -3557,8 +3582,9 @@ government order scheme rules regulations
     try:
 
         vectorizer = TfidfVectorizer(
-            max_features=15000,
-            ngram_range=(1, 2)
+            max_features=4000,
+            ngram_range=(1, 1),
+            dtype=np.float32
         )
 
 
@@ -3798,9 +3824,10 @@ async def compare_documents(
 
 ):
 
-    print("### NEW COMPARE ENDPOINT HIT ###", flush=True)
-
-    state = get_runtime_state(0)
+    print(
+        "### NEW COMPARE ENDPOINT HIT ###",
+        flush=True
+    )
 
     if (
         file_a.content_type
@@ -3816,27 +3843,24 @@ async def compare_documents(
                 "Please upload two PDF files"
         }
 
+    document_a = None
+    document_b = None
+    results_a = []
+    results_b = []
+    context_a = ""
+    context_b = ""
+
     try:
 
         bytes_a = await file_a.read()
 
-        bytes_b = await file_b.read()
+        if len(bytes_a) > 15 * 1024 * 1024:
 
-        state[
-            "comparison_pdf_a_bytes"
-        ] = bytes_a
-
-        state[
-            "comparison_pdf_b_bytes"
-        ] = bytes_b
-
-        state[
-            "comparison_filename_a"
-        ] = file_a.filename
-
-        state[
-            "comparison_filename_b"
-        ] = file_b.filename
+            return {
+                "success": False,
+                "message":
+                    "Document A is too large. Please use a PDF smaller than 15 MB."
+            }
 
         document_a = (
             prepare_comparison_document(
@@ -3845,12 +3869,8 @@ async def compare_documents(
             )
         )
 
-        document_b = (
-            prepare_comparison_document(
-                bytes_b,
-                file_b.filename
-            )
-        )
+        del bytes_a
+        gc.collect()
 
         if document_a is None:
 
@@ -3859,6 +3879,26 @@ async def compare_documents(
                 "message":
                     "Document A contains no readable text"
             }
+
+        bytes_b = await file_b.read()
+
+        if len(bytes_b) > 15 * 1024 * 1024:
+
+            return {
+                "success": False,
+                "message":
+                    "Document B is too large. Please use a PDF smaller than 15 MB."
+            }
+
+        document_b = (
+            prepare_comparison_document(
+                bytes_b,
+                file_b.filename
+            )
+        )
+
+        del bytes_b
+        gc.collect()
 
         if document_b is None:
 
@@ -3871,14 +3911,14 @@ async def compare_documents(
         results_a = (
             select_comparison_chunks(
                 document_a["chunks"],
-                top_k=10
+                top_k=6
             )
         )
 
         results_b = (
             select_comparison_chunks(
                 document_b["chunks"],
-                top_k=10
+                top_k=6
             )
         )
 
@@ -4085,19 +4125,7 @@ DOCUMENT B CONTEXT:
                     item["page"]
                 )
 
-        if state[
-            "current_chunks"
-        ]:
-
-            state[
-                "current_index"
-            ] = build_faiss_index(
-                state[
-                    "current_chunks"
-                ]
-            )
-
-        return {
+        response_data = {
             "success": True,
             "message":
                 "Documents compared successfully",
@@ -4107,11 +4135,9 @@ DOCUMENT B CONTEXT:
                         "filename"
                     ],
                 "total_pages":
-                    len(
-                        document_a[
-                            "pages"
-                        ]
-                    )
+                    document_a[
+                        "total_pages"
+                    ]
             },
             "document_b": {
                 "filename":
@@ -4119,11 +4145,9 @@ DOCUMENT B CONTEXT:
                         "filename"
                     ],
                 "total_pages":
-                    len(
-                        document_b[
-                            "pages"
-                        ]
-                    )
+                    document_b[
+                        "total_pages"
+                    ]
             },
             "language":
                 language,
@@ -4139,28 +4163,31 @@ DOCUMENT B CONTEXT:
                 results_b
         }
 
+        print(
+            "### COMPARE COMPLETED SUCCESSFULLY ###",
+            flush=True
+        )
+
+        return response_data
+
     except Exception as error:
 
         print(
             "COMPARISON ERROR:",
-            error
+            error,
+            flush=True
         )
-
-        if state[
-            "current_chunks"
-        ]:
-
-            state[
-                "current_index"
-            ] = build_faiss_index(
-                state[
-                    "current_chunks"
-                ]
-            )
 
         return {
             "success": False,
             "message":
                 str(error)
         }
+
+    finally:
+
+        context_a = ""
+        context_b = ""
+
+        gc.collect()
 
