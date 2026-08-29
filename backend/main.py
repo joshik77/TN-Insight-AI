@@ -3794,18 +3794,11 @@ async def compare_documents(
         UploadFile = File(...),
 
     language:
-        str = Form("English"),
-
-    current_user_id:
-        int = Depends(
-            get_authenticated_user_id
-        )
+        str = Form("English")
 
 ):
 
-    state = get_runtime_state(
-        current_user_id
-    )
+    state = get_runtime_state(0)
 
     if (
         file_a.content_type
