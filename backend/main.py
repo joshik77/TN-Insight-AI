@@ -11,6 +11,7 @@ from pathlib import Path
 
 import requests
 import numpy as np
+import fitz
 
 from dotenv import load_dotenv
 
@@ -3488,12 +3489,89 @@ def ask_question(
                 str(error)
         }
 
+def extract_pdf_text_for_comparison(
+    file_bytes,
+    max_pages=40,
+    max_chars_per_page=8000
+):
+
+    pages = []
+    pdf_document = None
+
+    try:
+
+        pdf_document = fitz.open(
+            stream=file_bytes,
+            filetype="pdf"
+        )
+
+        total_pages = min(
+            len(pdf_document),
+            max_pages
+        )
+
+        for page_index in range(
+            total_pages
+        ):
+
+            page = pdf_document.load_page(
+                page_index
+            )
+
+            text_value = (
+                page.get_text(
+                    "text"
+                )
+                or ""
+            ).strip()
+
+            if not text_value:
+                continue
+
+            if len(text_value) > max_chars_per_page:
+                text_value = text_value[
+                    :max_chars_per_page
+                ]
+
+            pages.append({
+                "page":
+                    page_index + 1,
+                "text":
+                    text_value
+            })
+
+            del page
+
+        return pages
+
+    except Exception as error:
+
+        print(
+            "LIGHTWEIGHT PDF EXTRACTION ERROR:",
+            error,
+            flush=True
+        )
+
+        return []
+
+    finally:
+
+        if pdf_document is not None:
+
+            try:
+                pdf_document.close()
+            except Exception:
+                pass
+
+        gc.collect()
+
+
 def prepare_comparison_document(
     file_bytes,
     filename
 ):
 
-    pages = extract_pdf_text(
+    pages = extract_pdf_text_for_comparison(
         file_bytes
     )
 
@@ -3534,8 +3612,8 @@ def prepare_comparison_document(
         extracted_pages
     )
 
-    if len(chunks) > 300:
-        chunks = chunks[:300]
+    if len(chunks) > 160:
+        chunks = chunks[:160]
 
     total_pages = len(
         extracted_pages
@@ -3582,7 +3660,7 @@ government order scheme rules regulations
     try:
 
         vectorizer = TfidfVectorizer(
-            max_features=4000,
+            max_features=2500,
             ngram_range=(1, 1),
             dtype=np.float32
         )
@@ -3854,12 +3932,12 @@ async def compare_documents(
 
         bytes_a = await file_a.read()
 
-        if len(bytes_a) > 15 * 1024 * 1024:
+        if len(bytes_a) > 8 * 1024 * 1024:
 
             return {
                 "success": False,
                 "message":
-                    "Document A is too large. Please use a PDF smaller than 15 MB."
+                    "Document A is too large. Please use a PDF smaller than 8 MB."
             }
 
         document_a = (
@@ -3882,12 +3960,12 @@ async def compare_documents(
 
         bytes_b = await file_b.read()
 
-        if len(bytes_b) > 15 * 1024 * 1024:
+        if len(bytes_b) > 8 * 1024 * 1024:
 
             return {
                 "success": False,
                 "message":
-                    "Document B is too large. Please use a PDF smaller than 15 MB."
+                    "Document B is too large. Please use a PDF smaller than 8 MB."
             }
 
         document_b = (
