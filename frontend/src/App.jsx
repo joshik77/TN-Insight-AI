@@ -44,9 +44,7 @@ import {
   UserPlus,
   UserCircle2,
   LockKeyhole,
-  Mail,
-  Moon,
-  Sun
+  Mail
 } from "lucide-react";
 
 
@@ -88,22 +86,7 @@ const authConfig = () => {
 
 
 const App = () => {
-
-  const [
-    darkMode,
-    setDarkMode
-  ] = useState(() => {
-
-    const storedTheme =
-      localStorage.getItem(
-        "tn_insight_theme"
-      );
-
-    return storedTheme === "dark";
-
-  });
-
-  const [
+const [
     authMode,
     setAuthMode
   ] = useState("login");
@@ -411,18 +394,6 @@ const App = () => {
     restoreSession();
 
   }, []);
-
-
-  useEffect(() => {
-
-    localStorage.setItem(
-      "tn_insight_theme",
-      darkMode
-        ? "dark"
-        : "light"
-    );
-
-  }, [darkMode]);
 
 
   useEffect(() => {
@@ -1722,226 +1693,8 @@ const App = () => {
 
   return (
 
-    <div className={`${darkMode ? "tn-dark" : ""} min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/70 text-slate-900 text-[15px] sm:text-base antialiased selection:bg-indigo-200/70 selection:text-indigo-950 transition-colors duration-500`}>
-
-
-      <style>{`
-        .tn-dark {
-          background:
-            radial-gradient(circle at 8% 8%, rgba(79,70,229,0.18), transparent 26%),
-            radial-gradient(circle at 92% 35%, rgba(124,58,237,0.13), transparent 28%),
-            linear-gradient(135deg, #070b14 0%, #0b1120 48%, #111827 100%) !important;
-          color: #e5e7eb !important;
-          color-scheme: dark;
-        }
-
-        .tn-dark header {
-          background: rgba(8, 13, 24, 0.82) !important;
-          border-color: rgba(71, 85, 105, 0.42) !important;
-        }
-
-        .tn-dark footer {
-          background: rgba(8, 13, 24, 0.76) !important;
-          border-color: rgba(71, 85, 105, 0.42) !important;
-        }
-
-        .tn-dark .bg-white,
-        .tn-dark .bg-white\\/80,
-        .tn-dark .bg-white\\/85,
-        .tn-dark .bg-white\\/90,
-        .tn-dark .bg-white\\/95,
-        .tn-dark .bg-white\\/70,
-        .tn-dark .bg-white\\/75 {
-          background-color: rgba(15, 23, 42, 0.88) !important;
-        }
-
-        .tn-dark .from-white {
-          --tw-gradient-from: rgba(15, 23, 42, 0.96) var(--tw-gradient-from-position) !important;
-          --tw-gradient-to: rgba(15, 23, 42, 0) var(--tw-gradient-to-position) !important;
-        }
-
-        .tn-dark .via-white {
-          --tw-gradient-to: rgba(15, 23, 42, 0) var(--tw-gradient-to-position) !important;
-          --tw-gradient-stops: var(--tw-gradient-from), rgba(17, 24, 39, 0.96) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
-        }
-
-        .tn-dark .to-indigo-50\\/70,
-        .tn-dark .to-indigo-50\\/60,
-        .tn-dark .to-indigo-50\\/40,
-        .tn-dark .to-violet-50,
-        .tn-dark .to-fuchsia-50\\/50 {
-          --tw-gradient-to: rgba(49, 46, 129, 0.18) var(--tw-gradient-to-position) !important;
-        }
-
-        .tn-dark .bg-slate-50,
-        .tn-dark .bg-slate-50\\/60,
-        .tn-dark .bg-slate-50\\/90,
-        .tn-dark .bg-slate-100 {
-          background-color: rgba(30, 41, 59, 0.86) !important;
-        }
-
-        .tn-dark .bg-indigo-50,
-        .tn-dark .bg-indigo-50\\/60,
-        .tn-dark .bg-indigo-50\\/90 {
-          background-color: rgba(49, 46, 129, 0.22) !important;
-        }
-
-        .tn-dark .bg-emerald-50,
-        .tn-dark .bg-emerald-50\\/90 {
-          background-color: rgba(6, 78, 59, 0.22) !important;
-        }
-
-        .tn-dark .text-slate-900,
-        .tn-dark .text-slate-800 {
-          color: #f8fafc !important;
-        }
-
-        .tn-dark .text-slate-700 {
-          color: #e2e8f0 !important;
-        }
-
-        .tn-dark .text-slate-600 {
-          color: #cbd5e1 !important;
-        }
-
-        .tn-dark .text-slate-500,
-        .tn-dark .text-slate-400 {
-          color: #94a3b8 !important;
-        }
-
-        .tn-dark .border-slate-200,
-        .tn-dark .border-slate-200\\/80,
-        .tn-dark .border-white\\/70,
-        .tn-dark .border-white\\/80,
-        .tn-dark .border-white\\/90 {
-          border-color: rgba(100, 116, 139, 0.34) !important;
-        }
-
-        .tn-dark input,
-        .tn-dark textarea,
-        .tn-dark select {
-          background: rgba(15, 23, 42, 0.94) !important;
-          color: #f8fafc !important;
-          border-color: rgba(100, 116, 139, 0.48) !important;
-        }
-
-        .tn-dark input::placeholder,
-        .tn-dark textarea::placeholder {
-          color: #64748b !important;
-        }
-
-        .tn-dark .theme-toggle {
-          background: rgba(30, 41, 59, 0.92) !important;
-          color: #f8fafc !important;
-          border-color: rgba(99, 102, 241, 0.40) !important;
-        }
-
-        .tn-dark .theme-toggle:hover {
-          background: rgba(49, 46, 129, 0.72) !important;
-          color: white !important;
-        }
-
-        .tn-dark button:not(:disabled),
-        .tn-dark a {
-          transition:
-            transform 220ms ease,
-            box-shadow 220ms ease,
-            background-color 220ms ease,
-            border-color 220ms ease,
-            color 220ms ease;
-        }
-
-        .tn-dark iframe {
-          background: #0f172a;
-        }
-
-        /* Strong dark-mode treatment for light gradient cards such as AI Comparison */
-        .tn-dark .from-indigo-50,
-        .tn-dark .from-indigo-50\/60,
-        .tn-dark .from-indigo-50\/70,
-        .tn-dark .from-indigo-50\/90,
-        .tn-dark .from-violet-50,
-        .tn-dark .from-fuchsia-50 {
-          --tw-gradient-from: rgba(15, 23, 42, 0.98) var(--tw-gradient-from-position) !important;
-          --tw-gradient-to: rgba(15, 23, 42, 0) var(--tw-gradient-to-position) !important;
-        }
-
-        .tn-dark .via-indigo-50,
-        .tn-dark .via-violet-50,
-        .tn-dark .via-violet-50\/70,
-        .tn-dark .via-fuchsia-50,
-        .tn-dark .via-white {
-          --tw-gradient-to: rgba(17, 24, 39, 0) var(--tw-gradient-to-position) !important;
-          --tw-gradient-stops:
-            var(--tw-gradient-from),
-            rgba(30, 41, 59, 0.96) var(--tw-gradient-via-position),
-            var(--tw-gradient-to) !important;
-        }
-
-        .tn-dark .to-indigo-50,
-        .tn-dark .to-indigo-50\/40,
-        .tn-dark .to-indigo-50\/60,
-        .tn-dark .to-indigo-50\/70,
-        .tn-dark .to-violet-50,
-        .tn-dark .to-violet-50\/70,
-        .tn-dark .to-fuchsia-50,
-        .tn-dark .to-fuchsia-50\/50 {
-          --tw-gradient-to: rgba(49, 46, 129, 0.28) var(--tw-gradient-to-position) !important;
-        }
-
-        .tn-dark .text-indigo-600,
-        .tn-dark .text-indigo-700 {
-          color: #c7d2fe !important;
-        }
-
-        .tn-dark .text-emerald-700 {
-          color: #6ee7b7 !important;
-        }
-
-        .tn-dark strong,
-        .tn-dark b,
-        .tn-dark h1,
-        .tn-dark h2,
-        .tn-dark h3,
-        .tn-dark h4,
-        .tn-dark h5,
-        .tn-dark h6 {
-          color: #f8fafc !important;
-        }
-
-        .tn-dark ul,
-        .tn-dark ol,
-        .tn-dark li {
-          color: #e2e8f0 !important;
-        }
-
-        .tn-dark blockquote {
-          background: rgba(49, 46, 129, 0.24) !important;
-          color: #e2e8f0 !important;
-          border-color: rgba(165, 180, 252, 0.55) !important;
-        }
-
-        .tn-dark code {
-          background: rgba(30, 41, 59, 0.96) !important;
-          color: #c7d2fe !important;
-        }
-
-        .tn-dark .tn-markdown,
-        .tn-dark .tn-markdown p,
-        .tn-dark .tn-markdown li {
-          color: #e5e7eb !important;
-        }
-
-        .tn-dark .tn-markdown h1,
-        .tn-dark .tn-markdown h2,
-        .tn-dark .tn-markdown h3,
-        .tn-dark .tn-markdown h4,
-        .tn-dark .tn-markdown strong {
-          color: #ffffff !important;
-        }
-      `}</style>
-
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/70 text-slate-900 text-[15px] sm:text-base antialiased selection:bg-indigo-200/70 selection:text-indigo-950 transition-colors duration-500">
+<div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-24 -left-24 h-80 w-80 rounded-full bg-indigo-300/20 blur-3xl" />
         <div className="absolute top-1/3 -right-32 h-96 w-96 rounded-full bg-violet-300/20 blur-3xl" />
         <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-cyan-200/20 blur-3xl" />
@@ -1999,33 +1752,7 @@ const App = () => {
 
             </nav>
 
-            <button
-              onClick={() =>
-                setDarkMode(
-                  previous =>
-                    !previous
-                )
-              }
-              className="theme-toggle inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/90 text-slate-700 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-700 hover:shadow-lg hover:shadow-indigo-500/10 active:translate-y-0"
-              title={
-                darkMode
-                  ? "Switch to light mode"
-                  : "Switch to dark mode"
-              }
-              aria-label={
-                darkMode
-                  ? "Switch to light mode"
-                  : "Switch to dark mode"
-              }
-            >
-
-              {darkMode ? (
-                <Sun size={18} />
-              ) : (
-                <Moon size={18} />
-              )}
-
-            </button>
+            
 
 
             {currentUser && (
