@@ -6,6 +6,8 @@ import React, {
 
 import axios from "axios";
 
+import ReactMarkdown from "react-markdown";
+
 import {
   Upload,
   Search,
@@ -2809,14 +2811,16 @@ const App = () => {
 
                   </h4>
 
-                  <p className="whitespace-pre-wrap text-base sm:text-lg leading-8 sm:leading-9 mt-5 text-slate-700">
+                  <div className="mt-5">
 
-                    {
-                      comparisonResult
-                        .comparison
-                    }
+                    <MarkdownContent
+                      content={
+                        comparisonResult
+                          .comparison
+                      }
+                    />
 
-                  </p>
+                  </div>
 
                 </div>
 
@@ -3476,6 +3480,95 @@ const PdfViewer = ({
 };
 
 
+const MarkdownContent = ({
+  content
+}) => (
+
+  <ReactMarkdown
+    components={{
+      h1: ({ children }) => (
+        <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 mt-6 first:mt-0 mb-3">
+          {children}
+        </h1>
+      ),
+
+      h2: ({ children }) => (
+        <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 mt-6 first:mt-0 mb-3">
+          {children}
+        </h2>
+      ),
+
+      h3: ({ children }) => (
+        <h3 className="text-lg sm:text-xl font-bold text-slate-900 mt-5 first:mt-0 mb-2">
+          {children}
+        </h3>
+      ),
+
+      h4: ({ children }) => (
+        <h4 className="text-base sm:text-lg font-bold text-slate-900 mt-4 first:mt-0 mb-2">
+          {children}
+        </h4>
+      ),
+
+      p: ({ children }) => (
+        <p className="text-[16px] sm:text-[17px] lg:text-[18px] leading-8 sm:leading-9 text-slate-700 font-[450] my-3 first:mt-0 last:mb-0">
+          {children}
+        </p>
+      ),
+
+      strong: ({ children }) => (
+        <strong className="font-bold text-slate-900">
+          {children}
+        </strong>
+      ),
+
+      em: ({ children }) => (
+        <em className="italic text-slate-700">
+          {children}
+        </em>
+      ),
+
+      ul: ({ children }) => (
+        <ul className="list-disc pl-6 sm:pl-7 my-4 space-y-2 text-[16px] sm:text-[17px] lg:text-[18px] leading-8 sm:leading-9 text-slate-700">
+          {children}
+        </ul>
+      ),
+
+      ol: ({ children }) => (
+        <ol className="list-decimal pl-6 sm:pl-7 my-4 space-y-2 text-[16px] sm:text-[17px] lg:text-[18px] leading-8 sm:leading-9 text-slate-700">
+          {children}
+        </ol>
+      ),
+
+      li: ({ children }) => (
+        <li className="pl-1">
+          {children}
+        </li>
+      ),
+
+      blockquote: ({ children }) => (
+        <blockquote className="my-4 border-l-4 border-indigo-300 bg-indigo-50/70 rounded-r-2xl px-4 py-3 text-slate-700">
+          {children}
+        </blockquote>
+      ),
+
+      code: ({ children }) => (
+        <code className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[0.9em] font-mono text-indigo-700">
+          {children}
+        </code>
+      ),
+
+      hr: () => (
+        <hr className="my-6 border-slate-200" />
+      )
+    }}
+  >
+    {content || ""}
+  </ReactMarkdown>
+
+);
+
+
 const AIAnswer = ({
   answer,
   sources,
@@ -3532,11 +3625,9 @@ const AIAnswer = ({
 
       <div className="w-full mt-7 rounded-3xl border border-slate-200/80 bg-gradient-to-br from-slate-50/90 via-white to-indigo-50/40 p-5 sm:p-7 lg:p-9 shadow-inner shadow-slate-900/[0.02]">
 
-        <p className="whitespace-pre-wrap text-[16px] sm:text-[17px] lg:text-[18px] leading-8 sm:leading-9 text-slate-700 font-[450]">
-
-          {answer}
-
-        </p>
+        <MarkdownContent
+          content={answer}
+        />
 
       </div>
 
