@@ -7,6 +7,8 @@ import hmac
 import secrets
 import time
 import gc
+import threading
+import uuid
 from pathlib import Path
 
 import requests
@@ -115,6 +117,7 @@ PBKDF2_ITERATIONS = 260000
 
 
 runtime_states = {}
+processing_jobs = {}
 
 
 def create_empty_runtime_state():
@@ -2829,29 +2832,17 @@ def delete_library_document(
                 str(error)
         }
 
-@app.post("/upload-pdf")
-async def upload_pdf(
-    file: UploadFile = File(...),
-    current_user:
-        User = Depends(
-            get_current_user
-        )
+def process_pdf_job(
+    job_id,
+    user_id,
+    filename,
+    file_bytes
 ):
-
-    if (
-        file.content_type
-        != "application/pdf"
-    ):
-
-        return {
-            "success": False,
-            "message":
-                "Please upload a PDF file"
-        }
+    job = processing_jobs[job_id]
 
     try:
-
-        file_bytes = await file.read()
+        job["status"] = "processing"
+        job["message"] = "Extracting text and running OCR..."
 
         pages = extract_pdf_text(
             file_bytes
@@ -2864,27 +2855,24 @@ async def upload_pdf(
         ]
 
         if not extracted_pages:
-
-            return {
-                "success": False,
-                "message":
-                    "No readable text found in this PDF"
-            }
-
-        current_chunks = (
-            chunk_pages(
-                extracted_pages
+            job["status"] = "failed"
+            job["message"] = (
+                "No readable text found in this PDF"
             )
+            return
+
+        job["message"] = "Building document search index..."
+
+        current_chunks = chunk_pages(
+            extracted_pages
         )
 
-        current_index = (
-            build_faiss_index(
-                current_chunks
-            )
+        current_index = build_faiss_index(
+            current_chunks
         )
 
         state = get_runtime_state(
-            current_user.id
+            user_id
         )
 
         state[
@@ -2909,41 +2897,31 @@ async def upload_pdf(
 
         state[
             "current_filename"
-        ] = file.filename
+        ] = filename
 
         total_characters = sum(
-            len(
-                page["text"]
-            )
+            len(page["text"])
             for page in extracted_pages
         )
 
         preview = (
-            extracted_pages[0][
-                "text"
-            ][:1200]
+            extracted_pages[0]["text"][:1200]
         )
 
-        return {
+        job["result"] = {
             "success": True,
             "message":
                 "PDF processed and indexed successfully",
             "filename":
-                file.filename,
+                filename,
             "total_pages":
-                len(
-                    pages
-                ),
+                len(pages),
             "pages_with_text":
-                len(
-                    extracted_pages
-                ),
+                len(extracted_pages),
             "total_characters":
                 total_characters,
             "total_chunks":
-                len(
-                    current_chunks
-                ),
+                len(current_chunks),
             "retrieval_method":
                 "TF-IDF + BM25 Hybrid Search",
             "preview":
@@ -2952,18 +2930,156 @@ async def upload_pdf(
                 True
         }
 
-    except Exception as error:
+        job["status"] = "completed"
+        job["message"] = "Document processed successfully"
 
+    except Exception as error:
         print(
-            "PDF ERROR:",
-            error
+            "BACKGROUND PDF ERROR:",
+            error,
+            flush=True
+        )
+
+        job["status"] = "failed"
+        job["message"] = str(error)
+
+    finally:
+        gc.collect()
+
+
+@app.post("/upload-pdf")
+async def upload_pdf(
+    file: UploadFile = File(...),
+    current_user:
+        User = Depends(
+            get_current_user
+        )
+):
+
+    if (
+        file.content_type
+        != "application/pdf"
+    ):
+        return {
+            "success": False,
+            "message":
+                "Please upload a PDF file"
+        }
+
+    try:
+        file_bytes = await file.read()
+
+        if not file_bytes:
+            return {
+                "success": False,
+                "message":
+                    "The uploaded PDF is empty"
+            }
+
+        job_id = uuid.uuid4().hex
+
+        processing_jobs[job_id] = {
+            "user_id":
+                current_user.id,
+            "status":
+                "queued",
+            "message":
+                "PDF uploaded. Processing is starting...",
+            "result":
+                None
+        }
+
+        worker = threading.Thread(
+            target=process_pdf_job,
+            args=(
+                job_id,
+                current_user.id,
+                file.filename,
+                file_bytes
+            ),
+            daemon=True
+        )
+
+        worker.start()
+
+        return {
+            "success": True,
+            "processing": True,
+            "job_id": job_id,
+            "message":
+                "PDF uploaded. Processing continues in the background."
+        }
+
+    except Exception as error:
+        print(
+            "PDF UPLOAD ERROR:",
+            error,
+            flush=True
         )
 
         return {
             "success": False,
-            "message":
-                str(error)
+            "message": str(error)
         }
+
+
+@app.get("/upload-status/{job_id}")
+def upload_status(
+    job_id: str,
+    current_user:
+        User = Depends(
+            get_current_user
+        )
+):
+
+    job = processing_jobs.get(
+        job_id
+    )
+
+    if (
+        not job
+        or job.get("user_id")
+        != current_user.id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Processing job not found"
+        )
+
+    response = {
+        "success": True,
+        "status":
+            job["status"],
+        "message":
+            job["message"]
+    }
+
+    if (
+        job["status"]
+        == "completed"
+    ):
+        response["result"] = (
+            job["result"]
+        )
+
+        processing_jobs.pop(
+            job_id,
+            None
+        )
+
+    elif (
+        job["status"]
+        == "failed"
+    ):
+        response["success"] = False
+
+        processing_jobs.pop(
+            job_id,
+            None
+        )
+
+    return response
+
 
 def create_language_instruction(
     language

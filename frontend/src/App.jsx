@@ -175,6 +175,11 @@ const [
     setUploading
   ] = useState(false);
 
+  const [
+    processingMessage,
+    setProcessingMessage
+  ] = useState("");
+
 
   const [
     aiAnswer,
@@ -753,25 +758,23 @@ const [
         return;
       }
 
-
       try {
 
         setUploading(true);
+        setProcessingMessage(
+          "Uploading PDF..."
+        );
 
         resetQuestionResults();
-
         setUploadResult(null);
-
 
         const formData =
           new FormData();
-
 
         formData.append(
           "file",
           selectedFile
         );
-
 
         const { data } =
           await axios.post(
@@ -780,8 +783,10 @@ const [
             authConfig()
           );
 
-
-        if (!data.success) {
+        if (
+          !data.success
+          || !data.job_id
+        ) {
 
           alert(
             data.message ||
@@ -791,31 +796,101 @@ const [
           return;
         }
 
-
-        setUploadResult(
-          data
+        setProcessingMessage(
+          data.message ||
+          "Processing document in the background..."
         );
 
+        const jobId =
+          data.job_id;
 
-        setSaveTitle(
-          selectedFile.name.replace(
-            /\.pdf$/i,
-            ""
-          )
-        );
+        let completed = false;
 
+        while (!completed) {
+
+          await new Promise(
+            resolve =>
+              setTimeout(
+                resolve,
+                2000
+              )
+          );
+
+          const statusResponse =
+            await axios.get(
+              `${API_BASE}/upload-status/${jobId}`,
+              authConfig()
+            );
+
+          const statusData =
+            statusResponse.data;
+
+          setProcessingMessage(
+            statusData.message ||
+            "Processing document..."
+          );
+
+          if (
+            statusData.status
+            === "completed"
+          ) {
+
+            if (
+              !statusData.result
+              ?.success
+            ) {
+
+              throw new Error(
+                "PDF processing did not return a valid result"
+              );
+            }
+
+            setUploadResult(
+              statusData.result
+            );
+
+            setSaveTitle(
+              selectedFile.name.replace(
+                /\.pdf$/i,
+                ""
+              )
+            );
+
+            completed = true;
+          }
+
+          if (
+            statusData.status
+            === "failed"
+            || statusData.success
+            === false
+          ) {
+
+            throw new Error(
+              statusData.message ||
+              "PDF processing failed"
+            );
+          }
+        }
 
       } catch (error) {
 
-        console.error(error);
+        console.error(
+          "PDF processing error:",
+          error
+        );
 
         alert(
-          "PDF upload failed"
+          error?.response?.data?.detail
+          || error?.response?.data?.message
+          || error?.message
+          || "PDF processing failed"
         );
 
       } finally {
 
         setUploading(false);
+        setProcessingMessage("");
 
       }
 
@@ -1964,7 +2039,7 @@ const [
                           size={18}
                           className="animate-spin"
                         />
-                        Processing...
+                        {processingMessage || "Processing..."}
                       </>
                     ) : (
                       "Process Document"
