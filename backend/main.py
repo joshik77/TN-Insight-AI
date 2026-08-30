@@ -34,6 +34,7 @@ from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text as sql_text
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -69,6 +70,29 @@ Base.metadata.create_all(
 )
 
 ensure_schema()
+
+
+# Persistent processed-text cache.
+# This survives Render restarts because the text is stored in PostgreSQL.
+with engine.begin() as connection:
+    connection.execute(
+        sql_text(
+            """
+            CREATE TABLE IF NOT EXISTS processed_pdf_cache (
+                id BIGSERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                content_hash VARCHAR(64) NOT NULL,
+                filename TEXT NOT NULL,
+                extracted_text TEXT NOT NULL,
+                total_pages INTEGER NOT NULL DEFAULT 0,
+                pages_with_text INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, content_hash)
+            )
+            """
+        )
+    )
+
 
 
 app = FastAPI(
@@ -2842,17 +2866,278 @@ def delete_library_document(
                 str(error)
         }
 
+
+def pages_to_persistent_text(
+    pages
+):
+    return "\n\n".join(
+        f"PAGE {page['page']}\n{page['text']}"
+        for page in pages
+        if (
+            page.get("text", "")
+            or ""
+        ).strip()
+    )
+
+
+def load_persistent_pdf_cache(
+    user_id,
+    content_hash
+):
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(
+                sql_text(
+                    """
+                    SELECT
+                        filename,
+                        extracted_text,
+                        total_pages,
+                        pages_with_text
+                    FROM processed_pdf_cache
+                    WHERE user_id = :user_id
+                      AND content_hash = :content_hash
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "content_hash": content_hash
+                }
+            ).mappings().first()
+
+        if not row:
+            return None
+
+        pages = parse_saved_pages(
+            row["extracted_text"]
+        )
+
+        pages = [
+            {
+                "page": page.get("page"),
+                "text": (
+                    page.get("text", "")
+                    or ""
+                ).strip()
+            }
+            for page in pages
+            if (
+                page.get("text", "")
+                or ""
+            ).strip()
+        ]
+
+        if not pages:
+            return None
+
+        return {
+            "filename": row["filename"],
+            "pages": pages,
+            "total_pages":
+                row["total_pages"]
+                or len(pages),
+            "pages_with_text":
+                row["pages_with_text"]
+                or len(pages)
+        }
+
+    except Exception as error:
+        print(
+            "PERSISTENT CACHE READ ERROR:",
+            error,
+            flush=True
+        )
+        return None
+
+
+def save_persistent_pdf_cache(
+    user_id,
+    content_hash,
+    filename,
+    pages,
+    total_pages
+):
+    full_text = pages_to_persistent_text(
+        pages
+    )
+
+    if not full_text.strip():
+        return
+
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                sql_text(
+                    """
+                    INSERT INTO processed_pdf_cache (
+                        user_id,
+                        content_hash,
+                        filename,
+                        extracted_text,
+                        total_pages,
+                        pages_with_text
+                    )
+                    VALUES (
+                        :user_id,
+                        :content_hash,
+                        :filename,
+                        :extracted_text,
+                        :total_pages,
+                        :pages_with_text
+                    )
+                    ON CONFLICT (user_id, content_hash)
+                    DO UPDATE SET
+                        filename = EXCLUDED.filename,
+                        extracted_text = EXCLUDED.extracted_text,
+                        total_pages = EXCLUDED.total_pages,
+                        pages_with_text = EXCLUDED.pages_with_text
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "content_hash": content_hash,
+                    "filename": filename,
+                    "extracted_text": full_text,
+                    "total_pages": total_pages,
+                    "pages_with_text": len(pages)
+                }
+            )
+
+        print(
+            "Persistent PDF cache SAVED",
+            flush=True
+        )
+
+    except Exception as error:
+        print(
+            "PERSISTENT CACHE SAVE ERROR:",
+            error,
+            flush=True
+        )
+
+
+def activate_processed_pages(
+    user_id,
+    filename,
+    file_bytes,
+    extracted_pages,
+    total_pages
+):
+    current_chunks = chunk_pages(
+        extracted_pages
+    )
+
+    current_index = build_faiss_index(
+        current_chunks
+    )
+
+    state = get_runtime_state(
+        user_id
+    )
+
+    state["current_pdf_bytes"] = (
+        file_bytes
+    )
+    state[
+        "current_library_document_id"
+    ] = None
+    state["current_pages"] = (
+        extracted_pages
+    )
+    state["current_chunks"] = (
+        current_chunks
+    )
+    state["current_index"] = (
+        current_index
+    )
+    state["current_filename"] = (
+        filename
+    )
+
+    total_characters = sum(
+        len(page["text"])
+        for page in extracted_pages
+    )
+
+    preview = (
+        extracted_pages[0]["text"][:1200]
+    )
+
+    return {
+        "success": True,
+        "message":
+            "PDF processed and indexed successfully",
+        "filename":
+            filename,
+        "total_pages":
+            total_pages,
+        "pages_with_text":
+            len(extracted_pages),
+        "total_characters":
+            total_characters,
+        "total_chunks":
+            len(current_chunks),
+        "retrieval_method":
+            "TF-IDF + BM25 Hybrid Search",
+        "preview":
+            preview,
+        "pdf_available":
+            True
+    }
+
+
 def process_pdf_job(
     job_id,
     user_id,
     filename,
-    file_bytes
+    file_bytes,
+    content_hash
 ):
     job = processing_jobs[job_id]
 
     try:
+        # First check PostgreSQL. Repeated PDFs skip OCR completely,
+        # even after Render has restarted.
+        cached = load_persistent_pdf_cache(
+            user_id,
+            content_hash
+        )
+
+        if cached:
+            job["status"] = "processing"
+            job["message"] = (
+                "Previously processed document found. Loading instantly..."
+            )
+
+            job["result"] = activate_processed_pages(
+                user_id,
+                filename,
+                file_bytes,
+                cached["pages"],
+                cached["total_pages"]
+            )
+
+            job["result"]["cache_hit"] = True
+            job["result"]["message"] = (
+                "Previously processed PDF loaded instantly"
+            )
+
+            job["status"] = "completed"
+            job["message"] = (
+                "Document ready — OCR was skipped"
+            )
+
+            print(
+                "PERSISTENT PDF CACHE HIT: OCR skipped",
+                flush=True
+            )
+            return
+
         job["status"] = "processing"
-        job["message"] = "Extracting text and running OCR..."
+        job["message"] = (
+            "New document detected. Extracting text..."
+        )
 
         pages = get_cached_pdf_pages(
             file_bytes,
@@ -2863,7 +3148,10 @@ def process_pdf_job(
         extracted_pages = [
             page
             for page in pages
-            if page["text"].strip()
+            if (
+                page.get("text", "")
+                or ""
+            ).strip()
         ]
 
         if not extracted_pages:
@@ -2873,77 +3161,35 @@ def process_pdf_job(
             )
             return
 
-        job["message"] = "Building document search index..."
-
-        current_chunks = chunk_pages(
-            extracted_pages
+        job["message"] = (
+            "Finishing document search index..."
         )
 
-        current_index = build_faiss_index(
-            current_chunks
+        result = activate_processed_pages(
+            user_id,
+            filename,
+            file_bytes,
+            extracted_pages,
+            len(pages)
         )
 
-        state = get_runtime_state(
-            user_id
+        # Persist OCR/text extraction once. Future uploads of the exact
+        # same PDF skip OCR, including after a Render restart.
+        save_persistent_pdf_cache(
+            user_id,
+            content_hash,
+            filename,
+            extracted_pages,
+            len(pages)
         )
 
-        state[
-            "current_pdf_bytes"
-        ] = file_bytes
+        result["cache_hit"] = False
 
-        state[
-            "current_library_document_id"
-        ] = None
-
-        state[
-            "current_pages"
-        ] = extracted_pages
-
-        state[
-            "current_chunks"
-        ] = current_chunks
-
-        state[
-            "current_index"
-        ] = current_index
-
-        state[
-            "current_filename"
-        ] = filename
-
-        total_characters = sum(
-            len(page["text"])
-            for page in extracted_pages
-        )
-
-        preview = (
-            extracted_pages[0]["text"][:1200]
-        )
-
-        job["result"] = {
-            "success": True,
-            "message":
-                "PDF processed and indexed successfully",
-            "filename":
-                filename,
-            "total_pages":
-                len(pages),
-            "pages_with_text":
-                len(extracted_pages),
-            "total_characters":
-                total_characters,
-            "total_chunks":
-                len(current_chunks),
-            "retrieval_method":
-                "TF-IDF + BM25 Hybrid Search",
-            "preview":
-                preview,
-            "pdf_available":
-                True
-        }
-
+        job["result"] = result
         job["status"] = "completed"
-        job["message"] = "Document processed successfully"
+        job["message"] = (
+            "Document processed successfully"
+        )
 
     except Exception as error:
         print(
@@ -2988,6 +3234,10 @@ async def upload_pdf(
                     "The uploaded PDF is empty"
             }
 
+        content_hash = hashlib.sha256(
+            file_bytes
+        ).hexdigest()
+
         job_id = uuid.uuid4().hex
 
         processing_jobs[job_id] = {
@@ -3007,7 +3257,8 @@ async def upload_pdf(
                 job_id,
                 current_user.id,
                 file.filename,
-                file_bytes
+                file_bytes,
+                content_hash
             ),
             daemon=True
         )
