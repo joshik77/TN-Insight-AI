@@ -10,3 +10,4 @@ pdfplumber
 pytesseract
 pillow
 sqlalchemy
+psycopg2-binary

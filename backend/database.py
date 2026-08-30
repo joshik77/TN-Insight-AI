@@ -1,16 +1,51 @@
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker, declarative_base
+import os
 
-
-DATABASE_URL = "sqlite:///./tn_insight.db"
-
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={
-        "check_same_thread": False
-    }
+from sqlalchemy import (
+    create_engine,
+    inspect,
+    text
 )
+
+from sqlalchemy.orm import (
+    sessionmaker,
+    declarative_base
+)
+
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///./tn_insight.db"
+)
+
+
+if DATABASE_URL.startswith(
+    "postgres://"
+):
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgres://",
+        "postgresql://",
+        1
+    )
+
+
+if DATABASE_URL.startswith(
+    "sqlite"
+):
+
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={
+            "check_same_thread": False
+        },
+        pool_pre_ping=True
+    )
+
+else:
+
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True
+    )
 
 
 SessionLocal = sessionmaker(
@@ -66,12 +101,30 @@ def ensure_schema():
                 )
             )
 
-    with engine.begin() as connection:
+    inspector = inspect(
+        engine
+    )
 
-        connection.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS "
-                "ix_documents_user_id "
-                "ON documents (user_id)"
-            )
+    index_names = {
+        index["name"]
+        for index
+        in inspector.get_indexes(
+            "documents"
         )
+        if index.get("name")
+    }
+
+    if (
+        "ix_documents_user_id"
+        not in index_names
+    ):
+
+        with engine.begin() as connection:
+
+            connection.execute(
+                text(
+                    "CREATE INDEX "
+                    "ix_documents_user_id "
+                    "ON documents (user_id)"
+                )
+            )
