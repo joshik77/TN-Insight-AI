@@ -39,7 +39,10 @@ from sqlalchemy import text as sql_text
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from pdf_utils import extract_pdf_text
+from pdf_utils import (
+    extract_pdf_text,
+    extract_pdf_text_progressive
+)
 
 from rag import (
     chunk_pages,
@@ -157,6 +160,8 @@ def create_empty_runtime_state():
         "current_pages": [],
         "current_pdf_bytes": None,
         "current_library_document_id": None,
+        "processing_job_id": None,
+        "processing_complete": True,
         "comparison_pdf_a_bytes": None,
         "comparison_pdf_b_bytes": None,
         "comparison_filename_a": None,
@@ -3095,10 +3100,17 @@ def process_pdf_job(
     content_hash
 ):
     job = processing_jobs[job_id]
+    state = get_runtime_state(
+        user_id
+    )
+
+    state["processing_job_id"] = job_id
+    state["processing_complete"] = False
+    state["current_pdf_bytes"] = file_bytes
+    state["current_filename"] = filename
+    state["current_library_document_id"] = None
 
     try:
-        # First check PostgreSQL. Repeated PDFs skip OCR completely,
-        # even after Render has restarted.
         cached = load_persistent_pdf_cache(
             user_id,
             content_hash
@@ -3119,9 +3131,10 @@ def process_pdf_job(
             )
 
             job["result"]["cache_hit"] = True
-            job["result"]["message"] = (
-                "Previously processed PDF loaded instantly"
-            )
+            job["result"]["processing_complete"] = True
+            job["result"]["ready_for_questions"] = True
+
+            state["processing_complete"] = True
 
             job["status"] = "completed"
             job["message"] = (
@@ -3138,11 +3151,67 @@ def process_pdf_job(
         job["message"] = (
             "New document detected. Extracting text..."
         )
+        job["ready_for_questions"] = False
+        job["partial_result"] = None
 
-        pages = get_cached_pdf_pages(
+        latest_pages = []
+
+        def progressive_update(
+            pages,
+            stage,
+            completed
+        ):
+            nonlocal latest_pages
+
+            extracted_pages = [
+                page
+                for page in pages
+                if (
+                    page.get("text", "")
+                    or ""
+                ).strip()
+            ]
+
+            if not extracted_pages:
+                job["message"] = stage
+                return
+
+            latest_pages = extracted_pages
+
+            # Rebuild only a small current-document index. MAX_OCR_PAGES is
+            # already tiny, so this is much cheaper than waiting for OCR.
+            partial_result = activate_processed_pages(
+                user_id,
+                filename,
+                file_bytes,
+                extracted_pages,
+                len(pages)
+            )
+
+            partial_result["cache_hit"] = False
+            partial_result[
+                "processing_complete"
+            ] = bool(completed)
+            partial_result[
+                "ready_for_questions"
+            ] = True
+
+            job["partial_result"] = partial_result
+            job["ready_for_questions"] = True
+            job["message"] = stage
+
+            print(
+                "PROGRESSIVE READY:",
+                stage,
+                "| searchable pages:",
+                len(extracted_pages),
+                flush=True
+            )
+
+        pages = extract_pdf_text_progressive(
             file_bytes,
-            extract_pdf_text,
-            cache_namespace="ocr"
+            on_update=progressive_update,
+            quick_ocr_pages=1
         )
 
         extracted_pages = [
@@ -3159,6 +3228,7 @@ def process_pdf_job(
             job["message"] = (
                 "No readable text found in this PDF"
             )
+            state["processing_complete"] = True
             return
 
         job["message"] = (
@@ -3173,8 +3243,6 @@ def process_pdf_job(
             len(pages)
         )
 
-        # Persist OCR/text extraction once. Future uploads of the exact
-        # same PDF skip OCR, including after a Render restart.
         save_persistent_pdf_cache(
             user_id,
             content_hash,
@@ -3184,12 +3252,18 @@ def process_pdf_job(
         )
 
         result["cache_hit"] = False
+        result["processing_complete"] = True
+        result["ready_for_questions"] = True
 
         job["result"] = result
+        job["partial_result"] = result
+        job["ready_for_questions"] = True
         job["status"] = "completed"
         job["message"] = (
             "Document processed successfully"
         )
+
+        state["processing_complete"] = True
 
     except Exception as error:
         print(
@@ -3200,6 +3274,7 @@ def process_pdf_job(
 
         job["status"] = "failed"
         job["message"] = str(error)
+        state["processing_complete"] = True
 
     finally:
         gc.collect()
@@ -3248,7 +3323,11 @@ async def upload_pdf(
             "message":
                 "PDF uploaded. Processing is starting...",
             "result":
-                None
+                None,
+            "partial_result":
+                None,
+            "ready_for_questions":
+                False
         }
 
         worker = threading.Thread(
@@ -3294,7 +3373,6 @@ def upload_status(
             get_current_user
         )
 ):
-
     job = processing_jobs.get(
         job_id
     )
@@ -3311,35 +3389,40 @@ def upload_status(
 
     response = {
         "success": True,
-        "status":
-            job["status"],
-        "message":
-            job["message"]
+        "status": job["status"],
+        "message": job["message"],
+        "ready_for_questions":
+            bool(
+                job.get(
+                    "ready_for_questions",
+                    False
+                )
+            ),
+        "processing_complete":
+            job["status"] == "completed"
     }
 
-    if (
-        job["status"]
-        == "completed"
-    ):
-        response["result"] = (
-            job["result"]
+    partial_result = job.get(
+        "partial_result"
+    )
+
+    if partial_result:
+        response[
+            "partial_result"
+        ] = partial_result
+
+    if job["status"] == "completed":
+        response["result"] = job["result"]
+
+        # Keep completed jobs briefly in memory rather than popping here.
+        # The frontend can poll more than once without receiving a false 404.
+        job["completed_at"] = job.get(
+            "completed_at",
+            time.time()
         )
 
-        processing_jobs.pop(
-            job_id,
-            None
-        )
-
-    elif (
-        job["status"]
-        == "failed"
-    ):
+    elif job["status"] == "failed":
         response["success"] = False
-
-        processing_jobs.pop(
-            job_id,
-            None
-        )
 
     return response
 

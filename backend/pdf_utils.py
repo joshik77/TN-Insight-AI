@@ -820,3 +820,178 @@ def extract_pdf_text(
     finally:
 
         gc.collect()
+
+def extract_pdf_text_progressive(
+    file_bytes,
+    on_update=None,
+    quick_ocr_pages=1
+):
+    """
+    Progressive extraction for interactive uploads.
+
+    1. Extract embedded text from the whole PDF with PyMuPDF.
+    2. Publish that immediately when any readable text exists.
+    3. For scanned/unreadable pages, OCR a small quick batch first and publish it.
+    4. Continue OCR for the remaining allowed pages and publish after each page.
+
+    Existing extract_pdf_text() remains unchanged for comparison/fallback callers.
+    """
+    print(
+        "Starting progressive PDF extraction...",
+        flush=True
+    )
+
+    pages = extract_with_pymupdf(
+        file_bytes
+    )
+
+    if not pages:
+        return []
+
+    def publish(stage, completed=False):
+        if not on_update:
+            return
+
+        snapshot = [
+            {
+                "page": page["page"],
+                "text": page.get("text", "")
+            }
+            for page in pages
+        ]
+
+        try:
+            on_update(
+                snapshot,
+                stage,
+                completed
+            )
+        except Exception as error:
+            print(
+                "Progressive update callback error:",
+                error,
+                flush=True
+            )
+
+    readable = count_readable_pages(
+        pages
+    )
+
+    if readable:
+        publish(
+            "Embedded PDF text is ready",
+            readable == len(pages)
+        )
+
+    missing_page_numbers = [
+        page["page"]
+        for page in pages
+        if not is_readable_text(
+            page.get("text", "")
+        )
+    ]
+
+    if not missing_page_numbers:
+        print(
+            "Progressive extraction complete; OCR not required.",
+            flush=True
+        )
+        return pages
+
+    if not TESSERACT_AVAILABLE:
+        print(
+            "Progressive OCR unavailable because Tesseract is missing.",
+            flush=True
+        )
+        return pages
+
+    # Keep the current server-protection limit. This avoids turning a free
+    # Render instance into a long-running full-document OCR worker.
+    ocr_targets = missing_page_numbers[
+        :MAX_OCR_PAGES
+    ]
+
+    quick_count = max(
+        1,
+        min(
+            int(quick_ocr_pages or 1),
+            len(ocr_targets)
+        )
+    )
+
+    document = None
+
+    try:
+        document = pymupdf.open(
+            stream=file_bytes,
+            filetype="pdf"
+        )
+
+        for index, page_number in enumerate(
+            ocr_targets
+        ):
+            if index == 0:
+                stage = (
+                    "OCRing first scanned page for quick access..."
+                )
+            elif index < quick_count:
+                stage = (
+                    f"OCRing quick page {index + 1}/{quick_count}..."
+                )
+            else:
+                stage = (
+                    f"Continuing OCR in background "
+                    f"({index + 1}/{len(ocr_targets)})..."
+                )
+
+            print(
+                stage,
+                flush=True
+            )
+
+            page = document.load_page(
+                page_number - 1
+            )
+
+            try:
+                text = ocr_single_page(
+                    page
+                )
+
+                if is_readable_text(
+                    text
+                ):
+                    pages[
+                        page_number - 1
+                    ]["text"] = text
+
+                    # Publish as soon as the first scanned page is usable,
+                    # then after every additional OCR page.
+                    publish(
+                        (
+                            "First scanned page is searchable"
+                            if index == 0
+                            else stage
+                        ),
+                        False
+                    )
+            finally:
+                del page
+                gc.collect()
+
+        publish(
+            "Progressive OCR complete",
+            True
+        )
+
+        return pages
+
+    finally:
+        if document is not None:
+            try:
+                document.close()
+            except Exception:
+                pass
+
+        gc.collect()
+
