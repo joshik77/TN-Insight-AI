@@ -10,9 +10,9 @@ from PIL import Image
 
 MIN_TEXT_LENGTH = 25
 
-OCR_SCALE = 1.2
+OCR_SCALE = 1.0
 
-MAX_OCR_PAGES = 8
+MAX_OCR_PAGES = 5
 
 MAX_TEXT_PER_PAGE = 12000
 
@@ -307,8 +307,25 @@ def get_available_ocr_language():
         return "eng"
 
 
-OCR_LANGUAGE = (
-    get_available_ocr_language()
+OCR_LANGUAGE = os.getenv(
+    "OCR_LANGUAGE",
+    "eng"
+).strip()
+
+if OCR_LANGUAGE not in {
+    "eng",
+    "tam",
+    "eng+tam"
+}:
+    OCR_LANGUAGE = (
+        get_available_ocr_language()
+        or "eng"
+    )
+
+print(
+    "Selected OCR language:",
+    OCR_LANGUAGE,
+    flush=True
 )
 
 
@@ -386,7 +403,7 @@ def ocr_single_page(page):
                 .image_to_string(
                     image,
                     lang=OCR_LANGUAGE,
-                    config="--oem 3 --psm 6"
+                    config="--oem 3 --psm 3"
                 )
             )
 
@@ -419,7 +436,7 @@ def ocr_single_page(page):
                             lang="eng",
                             config=(
                                 "--oem 3 "
-                                "--psm 6"
+                                "--psm 3"
                             )
                         )
                     )
