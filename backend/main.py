@@ -3691,6 +3691,17 @@ def prepare_comparison_document(
         file_bytes
     )
 
+    # Scanned/image-only PDFs have no embedded text.
+    # Fall back to the existing OCR pipeline from pdf_utils.py.
+    if not pages:
+        print(
+            "Comparison PDF has no embedded text. Falling back to OCR...",
+            flush=True
+        )
+        pages = extract_pdf_text(
+            file_bytes
+        )
+
     extracted_pages = []
 
     for page in pages:
