@@ -1855,6 +1855,40 @@ const App = () => {
           background: #0f172a;
         }
 
+        /* Strong dark-mode treatment for light gradient cards such as AI Comparison */
+        .tn-dark .from-indigo-50,
+        .tn-dark .from-indigo-50\/60,
+        .tn-dark .from-indigo-50\/70,
+        .tn-dark .from-indigo-50\/90,
+        .tn-dark .from-violet-50,
+        .tn-dark .from-fuchsia-50 {
+          --tw-gradient-from: rgba(15, 23, 42, 0.98) var(--tw-gradient-from-position) !important;
+          --tw-gradient-to: rgba(15, 23, 42, 0) var(--tw-gradient-to-position) !important;
+        }
+
+        .tn-dark .via-indigo-50,
+        .tn-dark .via-violet-50,
+        .tn-dark .via-violet-50\/70,
+        .tn-dark .via-fuchsia-50,
+        .tn-dark .via-white {
+          --tw-gradient-to: rgba(17, 24, 39, 0) var(--tw-gradient-to-position) !important;
+          --tw-gradient-stops:
+            var(--tw-gradient-from),
+            rgba(30, 41, 59, 0.96) var(--tw-gradient-via-position),
+            var(--tw-gradient-to) !important;
+        }
+
+        .tn-dark .to-indigo-50,
+        .tn-dark .to-indigo-50\/40,
+        .tn-dark .to-indigo-50\/60,
+        .tn-dark .to-indigo-50\/70,
+        .tn-dark .to-violet-50,
+        .tn-dark .to-violet-50\/70,
+        .tn-dark .to-fuchsia-50,
+        .tn-dark .to-fuchsia-50\/50 {
+          --tw-gradient-to: rgba(49, 46, 129, 0.28) var(--tw-gradient-to-position) !important;
+        }
+
         .tn-dark .text-indigo-600,
         .tn-dark .text-indigo-700 {
           color: #c7d2fe !important;
@@ -1862,16 +1896,6 @@ const App = () => {
 
         .tn-dark .text-emerald-700 {
           color: #6ee7b7 !important;
-        }
-
-        .tn-dark .text-violet-600,
-        .tn-dark .text-violet-700 {
-          color: #ddd6fe !important;
-        }
-
-        .tn-dark .text-fuchsia-600,
-        .tn-dark .text-fuchsia-700 {
-          color: #f5d0fe !important;
         }
 
         .tn-dark strong,
