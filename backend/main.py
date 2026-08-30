@@ -4048,12 +4048,12 @@ async def compare_documents(
 
         bytes_a = await file_a.read()
 
-        if len(bytes_a) > 8 * 1024 * 1024:
+        if len(bytes_a) > 20 * 1024 * 1024:
 
             return {
                 "success": False,
                 "message":
-                    "Document A is too large. Please use a PDF smaller than 8 MB."
+                    "Document A is too large. Please use a PDF smaller than 20 MB."
             }
 
         document_a = (
@@ -4076,12 +4076,12 @@ async def compare_documents(
 
         bytes_b = await file_b.read()
 
-        if len(bytes_b) > 8 * 1024 * 1024:
+        if len(bytes_b) > 20 * 1024 * 1024:
 
             return {
                 "success": False,
                 "message":
-                    "Document B is too large. Please use a PDF smaller than 8 MB."
+                    "Document B is too large. Please use a PDF smaller than 20 MB."
             }
 
         document_b = (
