@@ -119,6 +119,10 @@ PBKDF2_ITERATIONS = 260000
 runtime_states = {}
 processing_jobs = {}
 
+# Cache extracted PDF pages by SHA-256 to avoid repeated OCR.
+pdf_extraction_cache = {}
+MAX_PDF_CACHE_ITEMS = 12
+
 
 def create_empty_runtime_state():
 
@@ -2844,8 +2848,10 @@ def process_pdf_job(
         job["status"] = "processing"
         job["message"] = "Extracting text and running OCR..."
 
-        pages = extract_pdf_text(
-            file_bytes
+        pages = get_cached_pdf_pages(
+            file_bytes,
+            extract_pdf_text,
+            cache_namespace="ocr"
         )
 
         extracted_pages = [
@@ -3605,6 +3611,65 @@ def ask_question(
                 str(error)
         }
 
+def get_cached_pdf_pages(
+    file_bytes,
+    extractor,
+    cache_namespace="default"
+):
+    """
+    Reuse extracted text for the same PDF during the lifetime of this
+    Render process. The cache is intentionally small to limit memory use.
+    """
+    pdf_hash = hashlib.sha256(file_bytes).hexdigest()
+    cache_key = f"{cache_namespace}:{pdf_hash}"
+
+    cached = pdf_extraction_cache.get(cache_key)
+    if cached is not None:
+        print(
+            f"PDF extraction cache HIT: {cache_namespace}",
+            flush=True
+        )
+        return [
+            {
+                "page": item["page"],
+                "text": item["text"]
+            }
+            for item in cached
+        ]
+
+    print(
+        f"PDF extraction cache MISS: {cache_namespace}",
+        flush=True
+    )
+
+    pages = extractor(file_bytes)
+
+    if pages:
+        safe_pages = [
+            {
+                "page": item.get("page"),
+                "text": item.get("text", "")
+            }
+            for item in pages
+            if item.get("text", "").strip()
+        ]
+
+        if len(pdf_extraction_cache) >= MAX_PDF_CACHE_ITEMS:
+            oldest_key = next(iter(pdf_extraction_cache))
+            pdf_extraction_cache.pop(oldest_key, None)
+
+        pdf_extraction_cache[cache_key] = safe_pages
+        return [
+            {
+                "page": item["page"],
+                "text": item["text"]
+            }
+            for item in safe_pages
+        ]
+
+    return []
+
+
 def extract_pdf_text_for_comparison(
     file_bytes,
     max_pages=40,
@@ -3687,8 +3752,10 @@ def prepare_comparison_document(
     filename
 ):
 
-    pages = extract_pdf_text_for_comparison(
-        file_bytes
+    pages = get_cached_pdf_pages(
+        file_bytes,
+        extract_pdf_text_for_comparison,
+        cache_namespace="comparison-text"
     )
 
     # Scanned/image-only PDFs have no embedded text.
