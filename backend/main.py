@@ -166,6 +166,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class LibraryComparisonRequest(BaseModel):
+    document_a_id: int
+    document_b_id: int
+    language: str = "English"
+
+
 class QuestionRequest(BaseModel):
     question: str
     language: str = "English"
@@ -4080,6 +4086,362 @@ COMPARISON TO REWRITE:
         prompt,
         max_tokens=1800
     )
+
+
+
+def prepare_saved_library_document(
+    document
+):
+    """
+    Build comparison chunks directly from text already stored in Neon.
+    This path performs NO PDF extraction and NO OCR.
+    """
+    if (
+        document is None
+        or not document.extracted_text
+        or not document.extracted_text.strip()
+    ):
+        return None
+
+    pages = parse_saved_pages(
+        document.extracted_text
+    )
+
+    pages = [
+        {
+            "page": page.get("page"),
+            "text": (
+                page.get("text", "")
+                or ""
+            ).strip()
+        }
+        for page in pages
+        if (
+            page.get("text", "")
+            or ""
+        ).strip()
+    ]
+
+    if not pages:
+        return None
+
+    chunks = chunk_pages(
+        pages
+    )
+
+    if len(chunks) > 160:
+        chunks = chunks[:160]
+
+    return {
+        "filename":
+            document.filename,
+        "total_pages":
+            document.total_pages
+            or len(pages),
+        "chunks":
+            chunks
+    }
+
+
+def generate_fast_comparison(
+    document_a,
+    document_b,
+    language
+):
+    results_a = select_comparison_chunks(
+        document_a["chunks"],
+        top_k=6
+    )
+
+    results_b = select_comparison_chunks(
+        document_b["chunks"],
+        top_k=6
+    )
+
+    context_a = create_comparison_context(
+        results_a,
+        "DOCUMENT A"
+    )
+
+    context_b = create_comparison_context(
+        results_b,
+        "DOCUMENT B"
+    )
+
+    language_data = create_language_instruction(
+        language
+    )
+
+    prompt = f"""
+You are TN Insight AI.
+
+Compare two Tamil Nadu Government documents using ONLY the supplied context.
+
+OUTPUT LANGUAGE:
+{language_data["instruction"]}
+
+STRICT RULES:
+1. Return ONLY the final comparison.
+2. Do not reveal reasoning or chain-of-thought.
+3. Do not invent facts or use outside knowledge.
+4. Preserve Government Order numbers, dates, amounts, department names,
+   road names, locations and technical identifiers accurately.
+5. Clearly distinguish Document A from Document B.
+6. Include relevant page citations from BOTH documents.
+7. Do not describe A as old and B as new unless the context proves that
+   they are versions of the same policy/order/project.
+8. If they are unrelated, say that they are separate documents/projects.
+9. Keep the answer concise so the comparison returns quickly.
+10. Do not claim TN Insight AI is an official Government service.
+
+If Tamil is selected, write the complete explanation in clear Tamil.
+Keep official names, GO numbers, dates, amounts, abbreviations and necessary
+technical identifiers unchanged where translation could reduce accuracy.
+
+DOCUMENT A:
+{document_a["filename"]}
+
+DOCUMENT A CONTEXT:
+{context_a}
+
+DOCUMENT B:
+{document_b["filename"]}
+
+DOCUMENT B CONTEXT:
+{context_b}
+"""
+
+    ai_result = call_openrouter(
+        prompt,
+        max_tokens=1200
+    )
+
+    if not ai_result["success"]:
+        return {
+            "success": False,
+            "message":
+                ai_result["message"]
+        }
+
+    comparison_answer = remove_reasoning_leakage(
+        ai_result["answer"]
+    )
+
+    if not comparison_answer:
+        comparison_answer = (
+            ai_result["answer"]
+            or ""
+        ).strip()
+
+    if not comparison_answer:
+        return {
+            "success": False,
+            "message":
+                "Comparison generation failed. Please try again."
+        }
+
+    sources_a = []
+    seen_a = set()
+
+    for item in results_a:
+        page = item.get("page")
+        if page not in seen_a:
+            sources_a.append({
+                "page": page
+            })
+            seen_a.add(page)
+
+    sources_b = []
+    seen_b = set()
+
+    for item in results_b:
+        page = item.get("page")
+        if page not in seen_b:
+            sources_b.append({
+                "page": page
+            })
+            seen_b.add(page)
+
+    return {
+        "success": True,
+        "message":
+            "Saved documents compared successfully",
+        "fast_mode": True,
+        "document_a": {
+            "filename":
+                document_a["filename"],
+            "total_pages":
+                document_a["total_pages"]
+        },
+        "document_b": {
+            "filename":
+                document_b["filename"],
+            "total_pages":
+                document_b["total_pages"]
+        },
+        "language":
+            language,
+        "comparison":
+            comparison_answer,
+        "sources_a":
+            sources_a,
+        "sources_b":
+            sources_b,
+        "evidence_a":
+            results_a,
+        "evidence_b":
+            results_b
+    }
+
+
+@app.post("/compare-library-documents")
+def compare_library_documents(
+    request: LibraryComparisonRequest,
+    db: Session = Depends(
+        get_db
+    ),
+    current_user:
+        User = Depends(
+            get_current_user
+        )
+):
+    """
+    Super-fast comparison path for documents that have already been
+    processed and saved. OCR is never run here.
+    """
+    if (
+        request.document_a_id
+        == request.document_b_id
+    ):
+        return {
+            "success": False,
+            "message":
+                "Please select two different saved documents"
+        }
+
+    try:
+        saved_a = (
+            db.query(Document)
+            .filter(
+                Document.id
+                == request.document_a_id,
+                Document.user_id
+                == current_user.id
+            )
+            .first()
+        )
+
+        saved_b = (
+            db.query(Document)
+            .filter(
+                Document.id
+                == request.document_b_id,
+                Document.user_id
+                == current_user.id
+            )
+            .first()
+        )
+
+        if not saved_a:
+            return {
+                "success": False,
+                "message":
+                    "Saved Document A was not found"
+            }
+
+        if not saved_b:
+            return {
+                "success": False,
+                "message":
+                    "Saved Document B was not found"
+            }
+
+        document_a = (
+            prepare_saved_library_document(
+                saved_a
+            )
+        )
+
+        document_b = (
+            prepare_saved_library_document(
+                saved_b
+            )
+        )
+
+        if document_a is None:
+            return {
+                "success": False,
+                "message":
+                    "Saved Document A has no processed text. Process and save it again."
+            }
+
+        if document_b is None:
+            return {
+                "success": False,
+                "message":
+                    "Saved Document B has no processed text. Process and save it again."
+            }
+
+        # Preserve clickable comparison citations when the saved PDF
+        # is still available on this Render instance.
+        state = get_runtime_state(
+            current_user.id
+        )
+
+        path_a = get_library_pdf_path(
+            saved_a.id
+        )
+        path_b = get_library_pdf_path(
+            saved_b.id
+        )
+
+        state[
+            "comparison_pdf_a_bytes"
+        ] = (
+            path_a.read_bytes()
+            if path_a.exists()
+            else None
+        )
+
+        state[
+            "comparison_pdf_b_bytes"
+        ] = (
+            path_b.read_bytes()
+            if path_b.exists()
+            else None
+        )
+
+        state[
+            "comparison_filename_a"
+        ] = saved_a.filename
+
+        state[
+            "comparison_filename_b"
+        ] = saved_b.filename
+
+        print(
+            "FAST LIBRARY COMPARISON: using stored extracted text; OCR skipped",
+            flush=True
+        )
+
+        return generate_fast_comparison(
+            document_a,
+            document_b,
+            request.language
+        )
+
+    except Exception as error:
+        print(
+            "FAST LIBRARY COMPARISON ERROR:",
+            error,
+            flush=True
+        )
+
+        return {
+            "success": False,
+            "message":
+                str(error)
+        }
 
 
 @app.post("/compare-documents")

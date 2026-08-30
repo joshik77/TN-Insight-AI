@@ -214,6 +214,16 @@ const [
   ] = useState(null);
 
   const [
+    compareLibraryAId,
+    setCompareLibraryAId
+  ] = useState("");
+
+  const [
+    compareLibraryBId,
+    setCompareLibraryBId
+  ] = useState("");
+
+  const [
     compareFileB,
     setCompareFileB
   ] = useState(null);
@@ -1246,6 +1256,76 @@ const [
           : action.english
       );
 
+    };
+
+
+  const compareLibraryDocuments =
+    async () => {
+
+      if (
+        !compareLibraryAId
+        || !compareLibraryBId
+      ) {
+        alert(
+          "Select two saved documents"
+        );
+        return;
+      }
+
+      if (
+        compareLibraryAId
+        === compareLibraryBId
+      ) {
+        alert(
+          "Select two different saved documents"
+        );
+        return;
+      }
+
+      try {
+        setComparing(true);
+        setComparisonResult(null);
+
+        const { data } =
+          await axios.post(
+            `${API_BASE}/compare-library-documents`,
+            {
+              document_a_id:
+                Number(compareLibraryAId),
+              document_b_id:
+                Number(compareLibraryBId),
+              language
+            },
+            authConfig()
+          );
+
+        if (!data.success) {
+          alert(
+            data.message
+            || "Saved document comparison failed"
+          );
+          return;
+        }
+
+        setComparisonResult(
+          data
+        );
+
+      } catch (error) {
+        console.error(
+          "Fast library comparison error:",
+          error
+        );
+
+        alert(
+          error?.response?.data?.detail
+          || error?.response?.data?.message
+          || "Saved document comparison failed"
+        );
+
+      } finally {
+        setComparing(false);
+      }
     };
 
 
@@ -2635,6 +2715,116 @@ const [
                   setLanguage
                 }
               />
+
+            </div>
+
+
+            <div className="mt-7 rounded-3xl border border-emerald-200 bg-emerald-50/70 p-5">
+
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+
+                <div>
+                  <p className="font-bold text-emerald-900">
+                    Fast Compare Saved Documents
+                  </p>
+
+                  <p className="text-sm text-emerald-800 mt-1">
+                    Uses already processed text from your library. No OCR runs during comparison.
+                  </p>
+                </div>
+
+                <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white border border-emerald-200 text-emerald-800">
+                  Recommended
+                </span>
+
+              </div>
+
+              <div className="grid md:grid-cols-[1fr_auto_1fr] gap-4 mt-5 items-center">
+
+                <select
+                  value={compareLibraryAId}
+                  onChange={event =>
+                    setCompareLibraryAId(
+                      event.target.value
+                    )
+                  }
+                  className="w-full bg-white border border-slate-300 rounded-2xl px-4 py-3 text-slate-900"
+                >
+                  <option value="">
+                    Select saved Document A
+                  </option>
+
+                  {libraryDocuments.map(
+                    document => (
+                      <option
+                        key={`fast-a-${document.id}`}
+                        value={document.id}
+                      >
+                        {document.title || document.filename}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                <ArrowRight
+                  className="hidden md:block text-emerald-700"
+                />
+
+                <select
+                  value={compareLibraryBId}
+                  onChange={event =>
+                    setCompareLibraryBId(
+                      event.target.value
+                    )
+                  }
+                  className="w-full bg-white border border-slate-300 rounded-2xl px-4 py-3 text-slate-900"
+                >
+                  <option value="">
+                    Select saved Document B
+                  </option>
+
+                  {libraryDocuments.map(
+                    document => (
+                      <option
+                        key={`fast-b-${document.id}`}
+                        value={document.id}
+                      >
+                        {document.title || document.filename}
+                      </option>
+                    )
+                  )}
+                </select>
+
+              </div>
+
+              <button
+                onClick={
+                  compareLibraryDocuments
+                }
+                disabled={
+                  comparing
+                  || !compareLibraryAId
+                  || !compareLibraryBId
+                  || compareLibraryAId
+                    === compareLibraryBId
+                }
+                className="mt-4 w-full bg-emerald-700 text-white py-3.5 rounded-2xl hover:bg-emerald-800 transition-colors disabled:opacity-50"
+              >
+                {
+                  comparing
+                    ? "Comparing..."
+                    : "Fast Compare from Library"
+                }
+              </button>
+
+            </div>
+
+
+            <div className="mt-8 pt-7 border-t border-slate-200">
+
+              <p className="text-sm font-semibold text-slate-700">
+                Or upload two new PDFs
+              </p>
 
             </div>
 
