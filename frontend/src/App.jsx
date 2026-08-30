@@ -1854,6 +1854,67 @@ const App = () => {
         .tn-dark iframe {
           background: #0f172a;
         }
+
+        .tn-dark .text-indigo-600,
+        .tn-dark .text-indigo-700 {
+          color: #c7d2fe !important;
+        }
+
+        .tn-dark .text-emerald-700 {
+          color: #6ee7b7 !important;
+        }
+
+        .tn-dark .text-violet-600,
+        .tn-dark .text-violet-700 {
+          color: #ddd6fe !important;
+        }
+
+        .tn-dark .text-fuchsia-600,
+        .tn-dark .text-fuchsia-700 {
+          color: #f5d0fe !important;
+        }
+
+        .tn-dark strong,
+        .tn-dark b,
+        .tn-dark h1,
+        .tn-dark h2,
+        .tn-dark h3,
+        .tn-dark h4,
+        .tn-dark h5,
+        .tn-dark h6 {
+          color: #f8fafc !important;
+        }
+
+        .tn-dark ul,
+        .tn-dark ol,
+        .tn-dark li {
+          color: #e2e8f0 !important;
+        }
+
+        .tn-dark blockquote {
+          background: rgba(49, 46, 129, 0.24) !important;
+          color: #e2e8f0 !important;
+          border-color: rgba(165, 180, 252, 0.55) !important;
+        }
+
+        .tn-dark code {
+          background: rgba(30, 41, 59, 0.96) !important;
+          color: #c7d2fe !important;
+        }
+
+        .tn-dark .tn-markdown,
+        .tn-dark .tn-markdown p,
+        .tn-dark .tn-markdown li {
+          color: #e5e7eb !important;
+        }
+
+        .tn-dark .tn-markdown h1,
+        .tn-dark .tn-markdown h2,
+        .tn-dark .tn-markdown h3,
+        .tn-dark .tn-markdown h4,
+        .tn-dark .tn-markdown strong {
+          color: #ffffff !important;
+        }
       `}</style>
 
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -3484,6 +3545,8 @@ const MarkdownContent = ({
   content
 }) => (
 
+  <div className="tn-markdown">
+
   <ReactMarkdown
     components={{
       h1: ({ children }) => (
@@ -3565,6 +3628,8 @@ const MarkdownContent = ({
   >
     {content || ""}
   </ReactMarkdown>
+
+  </div>
 
 );
 
