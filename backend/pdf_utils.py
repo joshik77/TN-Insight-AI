@@ -424,7 +424,7 @@ def ocr_single_page(page):
                         )
                     )
 
-                               except Exception as english_error:
+                except Exception as english_error:
 
                     print(
                         "English OCR "
