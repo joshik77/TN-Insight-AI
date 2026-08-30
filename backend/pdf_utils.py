@@ -1,7 +1,6 @@
-import io
+import gc
 
 import pymupdf
-import pdfplumber
 import pytesseract
 
 from PIL import Image
@@ -13,7 +12,12 @@ pytesseract.pytesseract.tesseract_cmd = (
 
 
 MIN_TEXT_LENGTH = 25
-OCR_SCALE = 1.2
+
+OCR_SCALE = 1.0
+
+MAX_OCR_PAGES = 10
+
+MAX_TEXT_PER_PAGE = 12000
 
 
 def clean_text(text):
@@ -21,7 +25,12 @@ def clean_text(text):
     if not text:
         return ""
 
-    return text.strip()
+    text = text.strip()
+
+    if len(text) > MAX_TEXT_PER_PAGE:
+        text = text[:MAX_TEXT_PER_PAGE]
+
+    return text
 
 
 def is_readable_text(text):
@@ -35,181 +44,264 @@ def is_readable_text(text):
 def extract_with_pymupdf(file_bytes):
 
     print(
-        "Trying PyMuPDF extraction..."
-    )
-
-    document = pymupdf.open(
-        stream=file_bytes,
-        filetype="pdf"
+        "Trying lightweight PyMuPDF extraction...",
+        flush=True
     )
 
     pages = []
 
-    for page_number, page in enumerate(
-        document,
-        start=1
-    ):
+    document = None
 
-        text = clean_text(
-            page.get_text("text")
+    try:
+
+        document = pymupdf.open(
+            stream=file_bytes,
+            filetype="pdf"
         )
 
-        pages.append({
-            "page": page_number,
-            "text": text
-        })
+        total_pages = len(document)
 
-    document.close()
+        print(
+            "Total PDF pages:",
+            total_pages,
+            flush=True
+        )
 
-    return pages
-
-
-def extract_with_pdfplumber(file_bytes):
-
-    print(
-        "Trying pdfplumber extraction..."
-    )
-
-    pages = []
-
-    pdf_stream = io.BytesIO(
-        file_bytes
-    )
-
-    with pdfplumber.open(
-        pdf_stream
-    ) as pdf:
-
-        for page_number, page in enumerate(
-            pdf.pages,
-            start=1
+        for page_number in range(
+            total_pages
         ):
 
-            text = clean_text(
-                page.extract_text()
+            page = document.load_page(
+                page_number
             )
 
-            pages.append({
-                "page": page_number,
-                "text": text
-            })
+            try:
 
-    return pages
+                text = clean_text(
+                    page.get_text(
+                        "text"
+                    )
+                )
+
+                pages.append({
+                    "page":
+                        page_number + 1,
+                    "text":
+                        text
+                })
+
+            finally:
+
+                del page
+
+            if (
+                (page_number + 1) % 10
+                == 0
+            ):
+
+                gc.collect()
+
+        return pages
+
+    finally:
+
+        if document is not None:
+
+            try:
+                document.close()
+
+            except Exception:
+                pass
+
+        gc.collect()
 
 
 def ocr_single_page(page):
 
-    pixmap = page.get_pixmap(
-        matrix=pymupdf.Matrix(
-            OCR_SCALE,
-            OCR_SCALE
-        ),
-        alpha=False
-    )
-
-    image = Image.frombytes(
-        "RGB",
-        [
-            pixmap.width,
-            pixmap.height
-        ],
-        pixmap.samples
-    )
+    pixmap = None
+    image = None
 
     try:
 
-        text = pytesseract.image_to_string(
-            image,
-            lang="eng+tam",
-            config="--psm 6"
+        pixmap = page.get_pixmap(
+            matrix=pymupdf.Matrix(
+                OCR_SCALE,
+                OCR_SCALE
+            ),
+            alpha=False
         )
 
-    except Exception:
-
-        print(
-            "Tamil OCR unavailable. Falling back to English OCR."
+        image = Image.frombytes(
+            "RGB",
+            (
+                pixmap.width,
+                pixmap.height
+            ),
+            pixmap.samples
         )
 
-        text = pytesseract.image_to_string(
-            image,
-            lang="eng",
-            config="--psm 6"
-        )
+        try:
 
-    return clean_text(
-        text
-    )
-
-
-def extract_with_ocr(
-    file_bytes,
-    existing_pages=None
-):
-
-    print(
-        "Starting OCR extraction..."
-    )
-
-    document = pymupdf.open(
-        stream=file_bytes,
-        filetype="pdf"
-    )
-
-    pages = []
-
-    for page_number, page in enumerate(
-        document,
-        start=1
-    ):
-
-        existing_text = ""
-
-        if (
-            existing_pages
-            and page_number <= len(existing_pages)
-        ):
-
-            existing_text = (
-                existing_pages[
-                    page_number - 1
-                ]
-                .get(
-                    "text",
-                    ""
+            text = (
+                pytesseract
+                .image_to_string(
+                    image,
+                    lang="eng+tam",
+                    config="--psm 6"
                 )
             )
 
-        if is_readable_text(
-            existing_text
+        except Exception as error:
+
+            print(
+                "Tamil OCR unavailable. "
+                "Trying English OCR:",
+                error,
+                flush=True
+            )
+
+            try:
+
+                text = (
+                    pytesseract
+                    .image_to_string(
+                        image,
+                        lang="eng",
+                        config="--psm 6"
+                    )
+                )
+
+            except Exception as error:
+
+                print(
+                    "OCR unavailable:",
+                    error,
+                    flush=True
+                )
+
+                return ""
+
+        return clean_text(
+            text
+        )
+
+    finally:
+
+        if image is not None:
+
+            try:
+                image.close()
+
+            except Exception:
+                pass
+
+        if pixmap is not None:
+            del pixmap
+
+        gc.collect()
+
+
+def extract_missing_pages_with_ocr(
+    file_bytes,
+    pages
+):
+
+    missing_page_numbers = [
+        page["page"]
+        for page in pages
+        if not is_readable_text(
+            page["text"]
+        )
+    ]
+
+    if not missing_page_numbers:
+
+        print(
+            "No OCR required.",
+            flush=True
+        )
+
+        return pages
+
+    print(
+        "Pages requiring OCR:",
+        missing_page_numbers,
+        flush=True
+    )
+
+    if (
+        len(missing_page_numbers)
+        > MAX_OCR_PAGES
+    ):
+
+        print(
+            "Too many pages require OCR. "
+            f"Only the first {MAX_OCR_PAGES} "
+            "pages will be OCR processed "
+            "to protect server memory.",
+            flush=True
+        )
+
+        missing_page_numbers = (
+            missing_page_numbers[
+                :MAX_OCR_PAGES
+            ]
+        )
+
+    document = None
+
+    try:
+
+        document = pymupdf.open(
+            stream=file_bytes,
+            filetype="pdf"
+        )
+
+        for page_number in (
+            missing_page_numbers
         ):
 
             print(
-                f"Page {page_number}: text already available, skipping OCR."
+                f"OCR processing page "
+                f"{page_number}...",
+                flush=True
             )
 
-            pages.append({
-                "page": page_number,
-                "text": existing_text
-            })
+            page = document.load_page(
+                page_number - 1
+            )
 
-            continue
+            try:
 
-        print(
-            f"OCR processing page {page_number}..."
-        )
+                text = ocr_single_page(
+                    page
+                )
 
-        text = ocr_single_page(
-            page
-        )
+                if text:
 
-        pages.append({
-            "page": page_number,
-            "text": text
-        })
+                    pages[
+                        page_number - 1
+                    ]["text"] = text
 
-    document.close()
+            finally:
 
-    return pages
+                del page
+
+            gc.collect()
+
+        return pages
+
+    finally:
+
+        if document is not None:
+
+            try:
+                document.close()
+
+            except Exception:
+                pass
+
+        gc.collect()
 
 
 def count_readable_pages(pages):
@@ -223,166 +315,93 @@ def count_readable_pages(pages):
     )
 
 
-def merge_page_results(
-    primary_pages,
-    fallback_pages
-):
-
-    merged_pages = []
-
-    max_pages = max(
-        len(primary_pages),
-        len(fallback_pages)
-    )
-
-    for index in range(
-        max_pages
-    ):
-
-        primary_text = ""
-
-        fallback_text = ""
-
-
-        if index < len(
-            primary_pages
-        ):
-
-            primary_text = (
-                primary_pages[index]
-                .get(
-                    "text",
-                    ""
-                )
-            )
-
-
-        if index < len(
-            fallback_pages
-        ):
-
-            fallback_text = (
-                fallback_pages[index]
-                .get(
-                    "text",
-                    ""
-                )
-            )
-
-
-        if is_readable_text(
-            primary_text
-        ):
-
-            final_text = primary_text
-
-        else:
-
-            final_text = fallback_text
-
-
-        merged_pages.append({
-            "page": index + 1,
-            "text": final_text
-        })
-
-
-    return merged_pages
-
-
 def extract_pdf_text(file_bytes):
 
-    pymupdf_pages = extract_with_pymupdf(
-        file_bytes
-    )
-
-    pymupdf_readable = count_readable_pages(
-        pymupdf_pages
-    )
-
     print(
-        "PyMuPDF readable pages:",
-        pymupdf_readable
+        "Starting PDF extraction...",
+        flush=True
     )
 
+    try:
 
-    if (
-        pymupdf_readable
-        == len(pymupdf_pages)
-        and pymupdf_readable > 0
-    ):
-
-        print(
-            "All pages extracted successfully using PyMuPDF."
+        pages = extract_with_pymupdf(
+            file_bytes
         )
 
-        return pymupdf_pages
+        if not pages:
 
+            print(
+                "PDF contains no pages.",
+                flush=True
+            )
 
-    pdfplumber_pages = extract_with_pdfplumber(
-        file_bytes
-    )
+            return []
 
-    pdfplumber_readable = count_readable_pages(
-        pdfplumber_pages
-    )
-
-    print(
-        "pdfplumber readable pages:",
-        pdfplumber_readable
-    )
-
-
-    merged_pages = merge_page_results(
-        pymupdf_pages,
-        pdfplumber_pages
-    )
-
-
-    merged_readable = count_readable_pages(
-        merged_pages
-    )
-
-    print(
-        "Readable pages after normal extraction:",
-        merged_readable
-    )
-
-
-    if (
-        merged_readable
-        == len(merged_pages)
-        and merged_readable > 0
-    ):
-
-        print(
-            "All pages extracted without OCR."
+        readable_pages = (
+            count_readable_pages(
+                pages
+            )
         )
 
-        return merged_pages
+        print(
+            "PyMuPDF readable pages:",
+            readable_pages,
+            "/",
+            len(pages),
+            flush=True
+        )
 
+        if readable_pages == len(
+            pages
+        ):
 
-    print(
-        "Some pages still require OCR."
-    )
+            print(
+                "All pages extracted "
+                "successfully using PyMuPDF.",
+                flush=True
+            )
 
+            return pages
 
-    final_pages = extract_with_ocr(
-        file_bytes,
-        existing_pages=merged_pages
-    )
+        print(
+            "Some pages contain little "
+            "or no embedded text.",
+            flush=True
+        )
 
+        pages = (
+            extract_missing_pages_with_ocr(
+                file_bytes,
+                pages
+            )
+        )
 
-    final_readable = count_readable_pages(
-        final_pages
-    )
+        final_readable_pages = (
+            count_readable_pages(
+                pages
+            )
+        )
 
-    print(
-        "Final readable pages:",
-        final_readable,
-        "/",
-        len(final_pages)
-    )
+        print(
+            "Final readable pages:",
+            final_readable_pages,
+            "/",
+            len(pages),
+            flush=True
+        )
 
+        return pages
 
-    return final_pages
+    except Exception as error:
+
+        print(
+            "PDF EXTRACTION ERROR:",
+            error,
+            flush=True
+        )
+
+        return []
+
+    finally:
+
+        gc.collect()
