@@ -89,6 +89,7 @@ with engine.begin() as connection:
                 extracted_text TEXT NOT NULL,
                 total_pages INTEGER NOT NULL DEFAULT 0,
                 pages_with_text INTEGER NOT NULL DEFAULT 0,
+                uncached_processing_ms DOUBLE PRECISION,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, content_hash)
             )
@@ -96,6 +97,29 @@ with engine.begin() as connection:
         )
     )
 
+    connection.execute(
+        sql_text(
+            """
+            ALTER TABLE processed_pdf_cache
+            ADD COLUMN IF NOT EXISTS uncached_processing_ms DOUBLE PRECISION
+            """
+        )
+    )
+
+    connection.execute(
+        sql_text(
+            """
+            CREATE TABLE IF NOT EXISTS app_usage_metrics (
+                user_id INTEGER PRIMARY KEY,
+                qa_queries BIGINT NOT NULL DEFAULT 0,
+                english_queries BIGINT NOT NULL DEFAULT 0,
+                tamil_queries BIGINT NOT NULL DEFAULT 0,
+                first_query_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_query_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
 
 
 app = FastAPI(
@@ -1057,87 +1081,95 @@ def combine_evaluation_results(
     all_details = []
 
     for item in per_document_results:
+        document_name = item["document"]
+        evaluation = item["evaluation"]
 
-        document_name = (
-            item["document"]
-        )
-
-        evaluation = (
-            item["evaluation"]
-        )
-
-        for detail in (
-            evaluation.get(
-                "details",
-                []
-            )
+        for detail in evaluation.get(
+            "details",
+            []
         ):
-
             all_details.append({
-                "document":
-                    document_name,
+                "document": document_name,
                 **detail
             })
 
     if not all_details:
-
         return {
             "total_questions": 0,
             "recall_at_1": 0,
             "recall_at_3": 0,
             "recall_at_5": 0,
+            "hit_at_1": 0,
+            "hit_at_3": 0,
+            "hit_at_5": 0,
             "mrr": 0,
+            "average_retrieval_latency_ms": 0,
+            "median_retrieval_latency_ms": 0,
+            "p95_retrieval_latency_ms": 0,
             "details": []
         }
 
-    total = len(
-        all_details
+    total = len(all_details)
+
+    def average_metric(name):
+        return round(
+            sum(
+                float(item.get(name, 0) or 0)
+                for item in all_details
+            ) / total,
+            4
+        )
+
+    latencies = sorted(
+        float(item.get("retrieval_latency_ms", 0) or 0)
+        for item in all_details
     )
 
+    median_latency = 0.0
+    if latencies:
+        middle = len(latencies) // 2
+        if len(latencies) % 2 == 0:
+            median_latency = (
+                latencies[middle - 1]
+                + latencies[middle]
+            ) / 2
+        else:
+            median_latency = latencies[middle]
+
+    p95_latency = 0.0
+    if latencies:
+        p95_index = max(
+            0,
+            min(
+                len(latencies) - 1,
+                int(np.ceil(0.95 * len(latencies))) - 1
+            )
+        )
+        p95_latency = latencies[p95_index]
+
     return {
-        "total_questions":
-            total,
-
-        "recall_at_1":
-            round(
-                sum(
-                    item["recall_at_1"]
-                    for item in all_details
-                ) / total,
-                4
-            ),
-
-        "recall_at_3":
-            round(
-                sum(
-                    item["recall_at_3"]
-                    for item in all_details
-                ) / total,
-                4
-            ),
-
-        "recall_at_5":
-            round(
-                sum(
-                    item["recall_at_5"]
-                    for item in all_details
-                ) / total,
-                4
-            ),
-
-        "mrr":
-            round(
-                sum(
-                    item["reciprocal_rank"]
-                    for item in all_details
-                ) / total,
-                4
-            ),
-
-        "details":
-            all_details
+        "total_questions": total,
+        "recall_at_1": average_metric("recall_at_1"),
+        "recall_at_3": average_metric("recall_at_3"),
+        "recall_at_5": average_metric("recall_at_5"),
+        "hit_at_1": average_metric("hit_at_1"),
+        "hit_at_3": average_metric("hit_at_3"),
+        "hit_at_5": average_metric("hit_at_5"),
+        "mrr": average_metric("reciprocal_rank"),
+        "average_retrieval_latency_ms": round(
+            sum(latencies) / len(latencies),
+            3
+        ) if latencies else 0,
+        "median_retrieval_latency_ms": round(
+            median_latency,
+            3
+        ),
+        "p95_retrieval_latency_ms": round(
+            p95_latency,
+            3
+        ),
+        "details": all_details
     }
-
 
 def combine_retriever_comparisons(
     per_document_results
@@ -1182,7 +1214,13 @@ def combine_retriever_comparisons(
             "recall_at_1",
             "recall_at_3",
             "recall_at_5",
-            "mrr"
+            "hit_at_1",
+            "hit_at_3",
+            "hit_at_5",
+            "mrr",
+            "average_retrieval_latency_ms",
+            "median_retrieval_latency_ms",
+            "p95_retrieval_latency_ms"
         ]:
 
             weighted_total = 0.0
@@ -1471,6 +1509,88 @@ def health():
         "success": True,
         "status": "ok"
     }
+
+
+@app.get("/project-metrics")
+def project_metrics(
+    db: Session = Depends(
+        get_db
+    ),
+    current_user:
+        User = Depends(
+            get_current_user
+        )
+):
+    try:
+        registered_users = db.query(User).count()
+        total_saved_documents = db.query(Document).count()
+
+        with engine.connect() as connection:
+            usage = connection.execute(
+                sql_text(
+                    """
+                    SELECT
+                        COALESCE(SUM(qa_queries), 0) AS qa_queries,
+                        COALESCE(SUM(english_queries), 0) AS english_queries,
+                        COALESCE(SUM(tamil_queries), 0) AS tamil_queries,
+                        COUNT(*) FILTER (WHERE qa_queries > 0) AS active_qa_users
+                    FROM app_usage_metrics
+                    """
+                )
+            ).mappings().first()
+
+            cache_stats = connection.execute(
+                sql_text(
+                    """
+                    SELECT
+                        COUNT(*) AS cached_documents,
+                        COALESCE(SUM(total_pages), 0) AS cached_total_pages,
+                        COALESCE(AVG(uncached_processing_ms), 0) AS avg_uncached_processing_ms
+                    FROM processed_pdf_cache
+                    """
+                )
+            ).mappings().first()
+
+        return {
+            "success": True,
+            "note": (
+                "Usage counters start from the deployment that introduced "
+                "app_usage_metrics; they do not reconstruct historical queries."
+            ),
+            "registered_users": registered_users,
+            "active_qa_users_tracked": int(
+                usage["active_qa_users"] or 0
+            ),
+            "qa_queries_tracked": int(
+                usage["qa_queries"] or 0
+            ),
+            "english_queries_tracked": int(
+                usage["english_queries"] or 0
+            ),
+            "tamil_queries_tracked": int(
+                usage["tamil_queries"] or 0
+            ),
+            "total_saved_documents": total_saved_documents,
+            "cached_documents": int(
+                cache_stats["cached_documents"] or 0
+            ),
+            "cached_total_pages": int(
+                cache_stats["cached_total_pages"] or 0
+            ),
+            "average_uncached_processing_ms": round(
+                float(
+                    cache_stats["avg_uncached_processing_ms"]
+                    or 0
+                ),
+                2
+            )
+        }
+
+    except Exception as error:
+        return {
+            "success": False,
+            "message": str(error)
+        }
 
 
 @app.get("/evaluation")
@@ -1982,6 +2102,8 @@ def run_evaluation_dataset(
                     document.id,
                 "total_pages":
                     document.total_pages,
+                "total_chunks":
+                    len(benchmark_chunks),
                 "evaluation":
                     evaluation_result,
                 "retriever_comparison":
@@ -2025,6 +2147,16 @@ def run_evaluation_dataset(
             "documents_evaluated":
                 len(
                     per_document_results
+                ),
+            "total_pages_evaluated":
+                sum(
+                    int(item.get("total_pages") or 0)
+                    for item in per_document_results
+                ),
+            "total_chunks_evaluated":
+                sum(
+                    int(item.get("total_chunks") or 0)
+                    for item in per_document_results
                 ),
             "total_questions":
                 overall_evaluation[
@@ -2898,7 +3030,8 @@ def load_persistent_pdf_cache(
                         filename,
                         extracted_text,
                         total_pages,
-                        pages_with_text
+                        pages_with_text,
+                        uncached_processing_ms
                     FROM processed_pdf_cache
                     WHERE user_id = :user_id
                       AND content_hash = :content_hash
@@ -2944,7 +3077,9 @@ def load_persistent_pdf_cache(
                 or len(pages),
             "pages_with_text":
                 row["pages_with_text"]
-                or len(pages)
+                or len(pages),
+            "uncached_processing_ms":
+                row["uncached_processing_ms"]
         }
 
     except Exception as error:
@@ -2955,13 +3090,13 @@ def load_persistent_pdf_cache(
         )
         return None
 
-
 def save_persistent_pdf_cache(
     user_id,
     content_hash,
     filename,
     pages,
-    total_pages
+    total_pages,
+    uncached_processing_ms=None
 ):
     full_text = pages_to_persistent_text(
         pages
@@ -2981,7 +3116,8 @@ def save_persistent_pdf_cache(
                         filename,
                         extracted_text,
                         total_pages,
-                        pages_with_text
+                        pages_with_text,
+                        uncached_processing_ms
                     )
                     VALUES (
                         :user_id,
@@ -2989,14 +3125,19 @@ def save_persistent_pdf_cache(
                         :filename,
                         :extracted_text,
                         :total_pages,
-                        :pages_with_text
+                        :pages_with_text,
+                        :uncached_processing_ms
                     )
                     ON CONFLICT (user_id, content_hash)
                     DO UPDATE SET
                         filename = EXCLUDED.filename,
                         extracted_text = EXCLUDED.extracted_text,
                         total_pages = EXCLUDED.total_pages,
-                        pages_with_text = EXCLUDED.pages_with_text
+                        pages_with_text = EXCLUDED.pages_with_text,
+                        uncached_processing_ms = COALESCE(
+                            EXCLUDED.uncached_processing_ms,
+                            processed_pdf_cache.uncached_processing_ms
+                        )
                     """
                 ),
                 {
@@ -3005,7 +3146,9 @@ def save_persistent_pdf_cache(
                     "filename": filename,
                     "extracted_text": full_text,
                     "total_pages": total_pages,
-                    "pages_with_text": len(pages)
+                    "pages_with_text": len(pages),
+                    "uncached_processing_ms":
+                        uncached_processing_ms
                 }
             )
 
@@ -3021,6 +3164,63 @@ def save_persistent_pdf_cache(
             flush=True
         )
 
+
+def record_qa_query(
+    user_id,
+    language
+):
+    normalized_language = (
+        language or "English"
+    ).strip().lower()
+
+    english_increment = (
+        1 if normalized_language == "english" else 0
+    )
+    tamil_increment = (
+        1 if normalized_language == "tamil" else 0
+    )
+
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                sql_text(
+                    """
+                    INSERT INTO app_usage_metrics (
+                        user_id,
+                        qa_queries,
+                        english_queries,
+                        tamil_queries,
+                        first_query_at,
+                        last_query_at
+                    )
+                    VALUES (
+                        :user_id,
+                        1,
+                        :english_increment,
+                        :tamil_increment,
+                        CURRENT_TIMESTAMP,
+                        CURRENT_TIMESTAMP
+                    )
+                    ON CONFLICT (user_id)
+                    DO UPDATE SET
+                        qa_queries = app_usage_metrics.qa_queries + 1,
+                        english_queries = app_usage_metrics.english_queries + :english_increment,
+                        tamil_queries = app_usage_metrics.tamil_queries + :tamil_increment,
+                        last_query_at = CURRENT_TIMESTAMP
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "english_increment": english_increment,
+                    "tamil_increment": tamil_increment
+                }
+            )
+    except Exception as error:
+        print(
+            "USAGE METRICS ERROR:",
+            error,
+            flush=True
+        )
 
 def activate_processed_pages(
     user_id,
@@ -3099,6 +3299,7 @@ def process_pdf_job(
     file_bytes,
     content_hash
 ):
+    job_start = time.perf_counter()
     job = processing_jobs[job_id]
     state = get_runtime_state(
         user_id
@@ -3130,9 +3331,44 @@ def process_pdf_job(
                 cached["total_pages"]
             )
 
+            cached_processing_ms = (
+                time.perf_counter() - job_start
+            ) * 1000.0
+
             job["result"]["cache_hit"] = True
             job["result"]["processing_complete"] = True
             job["result"]["ready_for_questions"] = True
+            job["result"]["processing_time_ms"] = round(
+                cached_processing_ms,
+                2
+            )
+
+            historical_uncached_ms = (
+                cached.get("uncached_processing_ms")
+            )
+
+            if (
+                historical_uncached_ms
+                and historical_uncached_ms > 0
+            ):
+                improvement = (
+                    (historical_uncached_ms - cached_processing_ms)
+                    / historical_uncached_ms
+                ) * 100.0
+
+                job["result"]["previous_uncached_processing_ms"] = round(
+                    historical_uncached_ms,
+                    2
+                )
+                job["result"]["cache_speedup_x"] = round(
+                    historical_uncached_ms
+                    / max(cached_processing_ms, 0.001),
+                    2
+                )
+                job["result"]["cache_time_reduction_percent"] = round(
+                    max(0.0, improvement),
+                    2
+                )
 
             state["processing_complete"] = True
 
@@ -3243,15 +3479,24 @@ def process_pdf_job(
             len(pages)
         )
 
+        uncached_processing_ms = (
+            time.perf_counter() - job_start
+        ) * 1000.0
+
         save_persistent_pdf_cache(
             user_id,
             content_hash,
             filename,
             extracted_pages,
-            len(pages)
+            len(pages),
+            uncached_processing_ms=uncached_processing_ms
         )
 
         result["cache_hit"] = False
+        result["processing_time_ms"] = round(
+            uncached_processing_ms,
+            2
+        )
         result["processing_complete"] = True
         result["ready_for_questions"] = True
 
@@ -3884,6 +4129,11 @@ def ask_question(
                 "message":
                     ai_result["message"]
             }
+
+        record_qa_query(
+            current_user.id,
+            language
+        )
 
         sources = []
         seen_pages = set()

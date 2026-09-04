@@ -4,6 +4,8 @@ from rank_bm25 import BM25Okapi
 import numpy as np
 
 
+# Backward-compatible globals. The returned index object is preferred so
+# simultaneous users/documents do not overwrite each other's retriever state.
 vectorizer = None
 document_matrix = None
 bm25 = None
@@ -62,29 +64,42 @@ def build_faiss_index(chunks):
         f"Creating hybrid index for {len(texts)} chunks..."
     )
 
-    vectorizer = TfidfVectorizer(
+    local_vectorizer = TfidfVectorizer(
         max_features=15000,
         ngram_range=(1, 2)
     )
 
-    document_matrix = vectorizer.fit_transform(
+    local_document_matrix = local_vectorizer.fit_transform(
         texts
     )
 
-    tokenized_corpus = [
+    local_tokenized_corpus = [
         tokenize_text(text)
         for text in texts
     ]
 
-    bm25 = BM25Okapi(
-        tokenized_corpus
+    local_bm25 = BM25Okapi(
+        local_tokenized_corpus
     )
+
+    # Keep the old globals populated for backward compatibility with any code
+    # that was written before the per-index retriever object was introduced.
+    vectorizer = local_vectorizer
+    document_matrix = local_document_matrix
+    bm25 = local_bm25
+    tokenized_corpus = local_tokenized_corpus
 
     print(
         "TF-IDF + BM25 hybrid indexing completed."
     )
 
-    return True
+    return {
+        "vectorizer": local_vectorizer,
+        "document_matrix": local_document_matrix,
+        "bm25": local_bm25,
+        "tokenized_corpus": local_tokenized_corpus,
+        "chunk_count": len(chunks)
+    }
 
 
 def normalize_scores(scores):
@@ -121,27 +136,38 @@ def search_chunks(
     global document_matrix
     global bm25
 
+    # Prefer the index object passed by the caller. This makes retrieval safe
+    # across different documents/users. Fall back to globals for compatibility.
+    if isinstance(index, dict):
+        active_vectorizer = index.get("vectorizer")
+        active_document_matrix = index.get("document_matrix")
+        active_bm25 = index.get("bm25")
+    else:
+        active_vectorizer = vectorizer
+        active_document_matrix = document_matrix
+        active_bm25 = bm25
+
     if (
-        vectorizer is None
-        or document_matrix is None
-        or bm25 is None
+        active_vectorizer is None
+        or active_document_matrix is None
+        or active_bm25 is None
     ):
         return []
 
-    query_vector = vectorizer.transform(
+    query_vector = active_vectorizer.transform(
         [question]
     )
 
     tfidf_scores = cosine_similarity(
         query_vector,
-        document_matrix
+        active_document_matrix
     )[0]
 
     tokenized_query = tokenize_text(
         question
     )
 
-    bm25_scores = bm25.get_scores(
+    bm25_scores = active_bm25.get_scores(
         tokenized_query
     )
 
